@@ -10,6 +10,7 @@ public class Well
 {
     private readonly Random random;
     private double elapsedSeconds;
+    private double wearRatePerSecond;
 
     // --- Constantes de diseño del pozo ---
     private const double NominalFrequency = 60.0;    // Hz
@@ -28,6 +29,11 @@ public class Well
     /// en un pozo real esto pasa a lo largo de meses o años.</summary>
     private const double WaterCutRatePerDay = 0.02;
 
+    // --- Efectos de la degradación de la bomba a desgaste total ---
+    private const double WearVibrationRise = 7.0;  // mm/s que suma la vibración
+    private const double WearCurrentRise = 15.0;   // A que suma la corriente
+    private const double WearFlowLoss = 0.35;      // fracción de caudal que se pierde
+
     public string Name { get; }
 
     // --- Tags ---
@@ -45,6 +51,9 @@ public class Well
     /// <summary>Fracción de agua en el líquido producido (0 a 1).</summary>
     public double WaterCut { get; private set; }
 
+    /// <summary>Desgaste acumulado de la bomba, de 0 (sana) a 1 (falla inminente).</summary>
+    public double PumpWear { get; private set; }
+
     /// <summary>Frecuencia que pide el operador; el variador la alcanza con rampa.</summary>
     public double FrequencySetpoint { get; set; } = 52.0;
 
@@ -60,6 +69,9 @@ public class Well
     {
         elapsedSeconds += dt;
 
+        // El desgaste solo avanza; una bomba no se repara sola.
+        PumpWear = Math.Min(1.0, PumpWear + wearRatePerSecond * dt);
+
         // El variador no salta: se acerca al setpoint de a poco.
         double error = FrequencySetpoint - EspFrequency;
         double maxChange = RampRate * dt;
@@ -71,8 +83,9 @@ public class Well
         // El yacimiento se va inundando: el corte de agua sube despacio y no vuelve.
         WaterCut = Math.Min(0.95, WaterCut + WaterCutRatePerDay * dt / 86400.0);
 
-        // Ley de afinidad: el caudal de líquido es proporcional a la velocidad de la bomba.
-        double liquidRate = MaxLiquidRate * ratio;
+        // Ley de afinidad, castigada por el desgaste: los impulsores gastados
+        // mueven menos líquido a la misma velocidad.
+        double liquidRate = MaxLiquidRate * ratio * (1 - WearFlowLoss * PumpWear);
         OilRate = liquidRate * (1 - WaterCut) + Noise(0.5);
         WaterRate = liquidRate * WaterCut + Noise(0.5);
 
@@ -80,10 +93,11 @@ public class Well
         GasRate = OilRate * GasOilRatio + Noise(50);
 
         // Potencia ∝ velocidad³ y tensión ∝ frecuencia, así que corriente ∝ velocidad².
-        EspCurrent = NominalCurrent * ratio * ratio + Noise(0.3);
+        // Más rozamiento en los cojinetes, más corriente para el mismo trabajo.
+        EspCurrent = NominalCurrent * ratio * ratio + WearCurrentRise * PumpWear + Noise(0.3);
 
-        // Vibración: crece con la velocidad. Acá se van a ver las fallas de la bomba.
-        EspVibration = BaseVibration + 1.5 * ratio * ratio + Noise(0.05);
+        // La vibración es el síntoma más temprano y más claro del desgaste.
+        EspVibration = BaseVibration + 1.5 * ratio * ratio + WearVibrationRise * PumpWear + Noise(0.05);
 
         // Presión en boca: la estática más la fricción, que crece con el caudal².
         double flowFraction = liquidRate / MaxLiquidRate;
@@ -94,6 +108,20 @@ public class Well
 
         // Temperatura en boca: cuanto más caudal, menos se enfría el fluido al subir.
         HeadTemperature = AmbientTemperature + ReservoirHeat * flowFraction + Noise(0.2);
+    }
+
+    /// <summary>Arranca la degradación gradual de la bomba.</summary>
+    /// <param name="minutesToFailure">Minutos hasta el desgaste total.</param>
+    public void StartPumpDegradation(double minutesToFailure = 2.0)
+    {
+        wearRatePerSecond = 1.0 / (minutesToFailure * 60.0);
+    }
+
+    /// <summary>Repara la bomba y detiene la degradación.</summary>
+    public void RepairPump()
+    {
+        wearRatePerSecond = 0;
+        PumpWear = 0;
     }
 
     /// <summary>Ruido de medición: chico y centrado en cero.</summary>
