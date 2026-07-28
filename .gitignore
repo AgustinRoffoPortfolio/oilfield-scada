@@ -488,3 +488,5 @@ appsettings.Development.json
 *.key
 .env
 pki/
+
+docs/glosario.md
