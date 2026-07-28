@@ -2,15 +2,14 @@ namespace Shared;
 
 /// <summary>
 /// Modelo físico de un pozo con bomba electrosumergible (ESP).
-/// Todo se deriva de la frecuencia del variador: la bomba levanta un caudal
-/// de líquido, ese líquido se reparte entre petróleo y agua según el corte
-/// de agua, y el gas sale en proporción al petróleo producido.
+/// El pozo calcula los valores físicos reales; los sensores son los que
+/// los miden y los reportan, con su ruido y sus fallas propias.
 /// </summary>
 public class Well
 {
-    private readonly Random random;
     private double elapsedSeconds;
     private double wearRatePerSecond;
+    private double frequency = 50.0; // Hz reales del variador
 
     // --- Constantes de diseño del pozo ---
     private const double NominalFrequency = 60.0;    // Hz
@@ -36,16 +35,18 @@ public class Well
 
     public string Name { get; }
 
-    // --- Tags ---
-    public double EspFrequency { get; private set; } = 50.0; // Hz
-    public double EspCurrent { get; private set; }           // A
-    public double EspVibration { get; private set; }         // mm/s
-    public double OilRate { get; private set; }              // m³/d
-    public double WaterRate { get; private set; }            // m³/d
-    public double GasRate { get; private set; }              // Nm³/d
-    public double WellheadPressure { get; private set; }     // bar (THP)
-    public double CasingPressure { get; private set; }       // bar (CHP)
-    public double HeadTemperature { get; private set; }      // °C
+    // --- Sensores (lo que el SCADA puede leer) ---
+    public Sensor EspFrequency { get; }
+    public Sensor EspCurrent { get; }
+    public Sensor EspVibration { get; }
+    public Sensor OilRate { get; }
+    public Sensor WaterRate { get; }
+    public Sensor GasRate { get; }
+    public Sensor WellheadPressure { get; }
+    public Sensor CasingPressure { get; }
+    public Sensor HeadTemperature { get; }
+
+    /// <summary>Estado operativo. No es una medición analógica, no lleva sensor.</summary>
     public WellStatus Status { get; private set; } = WellStatus.Running;
 
     /// <summary>Fracción de agua en el líquido producido (0 a 1).</summary>
@@ -60,8 +61,17 @@ public class Well
     public Well(string name, int seed, double initialWaterCut = 0.35)
     {
         Name = name;
-        random = new Random(seed);
         WaterCut = initialWaterCut;
+
+        EspFrequency     = new Sensor("ESP_freq",    "Hz",    0.02, seed + 1);
+        EspCurrent       = new Sensor("ESP_current", "A",     0.30, seed + 2);
+        EspVibration     = new Sensor("ESP_vib",     "mm/s",  0.05, seed + 3);
+        OilRate          = new Sensor("Q_oil",       "m3/d",  0.50, seed + 4);
+        WaterRate        = new Sensor("Q_water",     "m3/d",  0.50, seed + 5);
+        GasRate          = new Sensor("Q_gas",       "Nm3/d", 50.0, seed + 6);
+        WellheadPressure = new Sensor("THP",         "bar",   0.10, seed + 7);
+        CasingPressure   = new Sensor("CHP",         "bar",   0.15, seed + 8);
+        HeadTemperature  = new Sensor("T_head",      "C",     0.20, seed + 9);
     }
 
     /// <summary>Avanza la simulación dt segundos.</summary>
@@ -73,12 +83,12 @@ public class Well
         PumpWear = Math.Min(1.0, PumpWear + wearRatePerSecond * dt);
 
         // El variador no salta: se acerca al setpoint de a poco.
-        double error = FrequencySetpoint - EspFrequency;
+        double error = FrequencySetpoint - frequency;
         double maxChange = RampRate * dt;
-        EspFrequency += Math.Clamp(error, -maxChange, maxChange);
+        frequency += Math.Clamp(error, -maxChange, maxChange);
 
-        double ratio = EspFrequency / NominalFrequency;
-        Status = EspFrequency < MinFrequencyToRun ? WellStatus.Stopped : WellStatus.Running;
+        double ratio = frequency / NominalFrequency;
+        Status = frequency < MinFrequencyToRun ? WellStatus.Stopped : WellStatus.Running;
 
         // El yacimiento se va inundando: el corte de agua sube despacio y no vuelve.
         WaterCut = Math.Min(0.95, WaterCut + WaterCutRatePerDay * dt / 86400.0);
@@ -86,28 +96,31 @@ public class Well
         // Ley de afinidad, castigada por el desgaste: los impulsores gastados
         // mueven menos líquido a la misma velocidad.
         double liquidRate = MaxLiquidRate * ratio * (1 - WearFlowLoss * PumpWear);
-        OilRate = liquidRate * (1 - WaterCut) + Noise(0.5);
-        WaterRate = liquidRate * WaterCut + Noise(0.5);
+        double flowFraction = liquidRate / MaxLiquidRate;
 
-        // El gas viene disuelto en el petróleo: sale en proporción a lo que se produce.
-        GasRate = OilRate * GasOilRatio + Noise(50);
+        double oil = liquidRate * (1 - WaterCut);
+        double water = liquidRate * WaterCut;
 
         // Potencia ∝ velocidad³ y tensión ∝ frecuencia, así que corriente ∝ velocidad².
         // Más rozamiento en los cojinetes, más corriente para el mismo trabajo.
-        EspCurrent = NominalCurrent * ratio * ratio + WearCurrentRise * PumpWear + Noise(0.3);
+        double current = NominalCurrent * ratio * ratio + WearCurrentRise * PumpWear;
 
         // La vibración es el síntoma más temprano y más claro del desgaste.
-        EspVibration = BaseVibration + 1.5 * ratio * ratio + WearVibrationRise * PumpWear + Noise(0.05);
+        double vibration = BaseVibration + 1.5 * ratio * ratio + WearVibrationRise * PumpWear;
 
         // Presión en boca: la estática más la fricción, que crece con el caudal².
-        double flowFraction = liquidRate / MaxLiquidRate;
-        WellheadPressure = MinWellheadPressure + PressureGain * flowFraction * flowFraction + Noise(0.1);
+        double thp = MinWellheadPressure + PressureGain * flowFraction * flowFraction;
 
-        // Presión de casing: el gas acumulado en el anular, más baja y más estable.
-        CasingPressure = 8.0 + 10.0 * ratio + Noise(0.15);
-
-        // Temperatura en boca: cuanto más caudal, menos se enfría el fluido al subir.
-        HeadTemperature = AmbientTemperature + ReservoirHeat * flowFraction + Noise(0.2);
+        // Los instrumentos miden la realidad que acabamos de calcular.
+        EspFrequency.Update(frequency);
+        EspCurrent.Update(current);
+        EspVibration.Update(vibration);
+        OilRate.Update(oil);
+        WaterRate.Update(water);
+        GasRate.Update(oil * GasOilRatio);           // el gas sale disuelto en el petróleo
+        WellheadPressure.Update(thp);
+        CasingPressure.Update(8.0 + 10.0 * ratio);   // gas acumulado en el anular
+        HeadTemperature.Update(AmbientTemperature + ReservoirHeat * flowFraction);
     }
 
     /// <summary>Arranca la degradación gradual de la bomba.</summary>
@@ -123,7 +136,4 @@ public class Well
         wearRatePerSecond = 0;
         PumpWear = 0;
     }
-
-    /// <summary>Ruido de medición: chico y centrado en cero.</summary>
-    private double Noise(double amplitude) => (random.NextDouble() - 0.5) * 2 * amplitude;
 }
