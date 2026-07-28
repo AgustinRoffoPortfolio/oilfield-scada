@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Alarms/Alarms.csproj" />
+    <Project Path="src/Ingestion/Ingestion.csproj" />
+    <Project Path="src/OpcUaServer/OpcUaServer.csproj" />
+    <Project Path="src/Shared/Shared.csproj" />
+    <Project Path="src/Simulator/Simulator.csproj" />
+    <Project Path="src/WebApp/WebApp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Simulator.Tests/Simulator.Tests.csproj" />
+  </Folder>
+</Solution>
