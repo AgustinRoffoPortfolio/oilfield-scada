@@ -9,6 +9,7 @@ public class Well
 {
     private double elapsedSeconds;
     private double wearRatePerSecond;
+    private double restrictionPerSecond;
     private double frequency = 50.0; // Hz reales del variador
 
     // --- Constantes de diseño del pozo ---
@@ -33,6 +34,10 @@ public class Well
     private const double WearCurrentRise = 15.0;   // A que suma la corriente
     private const double WearFlowLoss = 0.35;      // fracción de caudal que se pierde
 
+    // --- Efectos de la obstrucción de línea a restricción total ---
+    private const double ObstructionFlowLoss = 0.50;    // fracción de caudal que se pierde
+    private const double ObstructionPressureRise = 25.0; // bar que se acumulan aguas arriba
+
     public string Name { get; }
 
     // --- Sensores (lo que el SCADA puede leer) ---
@@ -54,6 +59,9 @@ public class Well
 
     /// <summary>Desgaste acumulado de la bomba, de 0 (sana) a 1 (falla inminente).</summary>
     public double PumpWear { get; private set; }
+
+    /// <summary>Obstrucción de la línea de producción, de 0 (libre) a 1 (casi tapada).</summary>
+    public double LineRestriction { get; private set; }
 
     /// <summary>Frecuencia que pide el operador; el variador la alcanza con rampa.</summary>
     public double FrequencySetpoint { get; set; } = 52.0;
@@ -82,6 +90,9 @@ public class Well
         // El desgaste solo avanza; una bomba no se repara sola.
         PumpWear = Math.Min(1.0, PumpWear + wearRatePerSecond * dt);
 
+        // La parafina se sigue depositando mientras nadie limpie la línea.
+        LineRestriction = Math.Min(1.0, LineRestriction + restrictionPerSecond * dt);
+
         // El variador no salta: se acerca al setpoint de a poco.
         double error = FrequencySetpoint - frequency;
         double maxChange = RampRate * dt;
@@ -93,9 +104,11 @@ public class Well
         // El yacimiento se va inundando: el corte de agua sube despacio y no vuelve.
         WaterCut = Math.Min(0.95, WaterCut + WaterCutRatePerDay * dt / 86400.0);
 
-        // Ley de afinidad, castigada por el desgaste: los impulsores gastados
-        // mueven menos líquido a la misma velocidad.
-        double liquidRate = MaxLiquidRate * ratio * (1 - WearFlowLoss * PumpWear);
+        // Ley de afinidad, castigada por dos cosas distintas: los impulsores
+        // gastados mueven menos líquido, y la línea tapada deja pasar menos.
+        double liquidRate = MaxLiquidRate * ratio
+                          * (1 - WearFlowLoss * PumpWear)
+                          * (1 - ObstructionFlowLoss * LineRestriction);
         double flowFraction = liquidRate / MaxLiquidRate;
 
         double oil = liquidRate * (1 - WaterCut);
@@ -108,19 +121,22 @@ public class Well
         // La vibración es el síntoma más temprano y más claro del desgaste.
         double vibration = BaseVibration + 1.5 * ratio * ratio + WearVibrationRise * PumpWear;
 
-        // Presión en boca: la estática más la fricción, que crece con el caudal².
-        double thp = MinWellheadPressure + PressureGain * flowFraction * flowFraction;
+        // Presión en boca: la estática, más la fricción que crece con el caudal²,
+        // más lo que se acumula contra el tapón cuando la línea se restringe.
+        double thp = MinWellheadPressure
+                   + PressureGain * flowFraction * flowFraction
+                   + ObstructionPressureRise * LineRestriction;
 
         // Los instrumentos miden la realidad que acabamos de calcular.
-        EspFrequency.Update(frequency);
-        EspCurrent.Update(current);
-        EspVibration.Update(vibration);
-        OilRate.Update(oil);
-        WaterRate.Update(water);
-        GasRate.Update(oil * GasOilRatio);           // el gas sale disuelto en el petróleo
-        WellheadPressure.Update(thp);
-        CasingPressure.Update(8.0 + 10.0 * ratio);   // gas acumulado en el anular
-        HeadTemperature.Update(AmbientTemperature + ReservoirHeat * flowFraction);
+        EspFrequency.Update(frequency, dt);
+        EspCurrent.Update(current, dt);
+        EspVibration.Update(vibration, dt);
+        OilRate.Update(oil, dt);
+        WaterRate.Update(water, dt);
+        GasRate.Update(oil * GasOilRatio, dt);           // el gas sale disuelto en el petróleo
+        WellheadPressure.Update(thp, dt);
+        CasingPressure.Update(8.0 + 10.0 * ratio, dt);   // gas acumulado en el anular
+        HeadTemperature.Update(AmbientTemperature + ReservoirHeat * flowFraction, dt);
     }
 
     /// <summary>Arranca la degradación gradual de la bomba.</summary>
@@ -135,5 +151,19 @@ public class Well
     {
         wearRatePerSecond = 0;
         PumpWear = 0;
+    }
+
+    /// <summary>Arranca la obstrucción progresiva de la línea de producción.</summary>
+    /// <param name="minutesToFull">Minutos hasta la restricción total.</param>
+    public void StartLineObstruction(double minutesToFull = 2.0)
+    {
+        restrictionPerSecond = 1.0 / (minutesToFull * 60.0);
+    }
+
+    /// <summary>Limpia la línea y detiene la obstrucción.</summary>
+    public void ClearLine()
+    {
+        restrictionPerSecond = 0;
+        LineRestriction = 0;
     }
 }
