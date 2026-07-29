@@ -2,6 +2,7 @@
 using Opc.Ua;
 using Opc.Ua.Configuration;
 using Opc.Ua.Server;
+using OpcUaServer;
 
 // Identidad de la aplicación ante la red OPC UA.
 var application = new ApplicationInstance
@@ -27,7 +28,7 @@ await application.Build(
 await application.CheckApplicationInstanceCertificatesAsync(silent: true);
 
 // StandardServer: el servidor base del stack. Todavía no expone tags nuestros.
-var server = new StandardServer();
+var server = new OilfieldServer();
 await application.StartAsync(server);
 
 Console.WriteLine("Servidor OPC UA escuchando en opc.tcp://localhost:4840/OilfieldScada");
