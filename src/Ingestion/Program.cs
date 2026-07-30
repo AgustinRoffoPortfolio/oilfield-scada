@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using Dapper;
 using Serilog;
+using Shared;
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
@@ -31,6 +32,11 @@ try
 
     var version = await conn.QuerySingleAsync<string>(
         "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'");
+
+    var fieldTags = FieldTagCatalog.Build(new Oilfield());
+    var tagRepo = new TagRepository(db.ConnectionString);
+    var tagIds = await tagRepo.SyncAsync(fieldTags);
+    Log.Information("Catalogo sincronizado: {Count} tags en la base", tagIds.Count);
 
     Log.Information("Conectado a {Db}@{Host}:{Port} - TimescaleDB {Version}",
         db.Database, db.Host, db.Port, version);
