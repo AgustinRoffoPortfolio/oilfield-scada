@@ -13,4 +13,7 @@ public sealed class DatabaseOptions
     /// Cadena de conexion en el formato que espera Npgsql.
     public string ConnectionString =>
         $"Host={Host};Port={Port};Database={Database};Username={Username};Password={Password}";
+
+    /// Cada cuanto se vuelca el buffer a la base, en milisegundos.
+    public int FlushIntervalMs { get; set; } = 2000;
 }
