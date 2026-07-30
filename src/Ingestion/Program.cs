@@ -38,6 +38,15 @@ try
     var tagIds = await tagRepo.SyncAsync(fieldTags);
     Log.Information("Catalogo sincronizado: {Count} tags en la base", tagIds.Count);
 
+    var opcOptions = new OpcUaOptions();
+    var opcClient = new OpcUaClient(opcOptions);
+    await opcClient.ConnectAsync();
+
+    var value = opcClient.ReadTag("POZO-A/THP");
+    Log.Information("POZO-A/THP = {Value} ({Status})", value.Value, value.StatusCode);
+
+    await opcClient.DisconnectAsync();
+
     Log.Information("Conectado a {Db}@{Host}:{Port} - TimescaleDB {Version}",
         db.Database, db.Host, db.Port, version);
 }

@@ -11,12 +11,18 @@
     <PackageReference Include="Dapper" Version="2.1.79" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Client" Version="1.5.378.156" />
+    <PackageReference Include="OPCFoundation.NetStandard.Opc.Ua.Configuration" Version="1.5.378.156" />
     <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Shared\Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
