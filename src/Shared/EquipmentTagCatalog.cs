@@ -1,4 +1,4 @@
-namespace OpcUaServer;
+namespace Shared;
 
 /// Tags del separador de producción.
 public static class SeparatorTagCatalog

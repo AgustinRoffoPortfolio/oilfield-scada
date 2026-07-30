@@ -1,4 +1,4 @@
-namespace OpcUaServer;
+namespace Shared;
 
 /// Descripción de un tag: nombre, unidad y rango de escala del instrumento.
 public record TagDefinition(string Name, string Unit, double Low, double High, string Description);
