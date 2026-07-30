@@ -1,0 +1,38 @@
+:root {
+  --bg: #0f1419;
+  --panel: #1a2029;
+  --border: #2a3441;
+  --text: #d4dae0;
+  --text-dim: #7d8b99;
+  --ok: #3fb950;
+  --alarm: #f85149;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.25rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+h1 { font-size: 1.1rem; font-weight: 600; margin: 0; letter-spacing: 0.04em; }
+
+#conn-status {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+main { padding: 1.25rem; }

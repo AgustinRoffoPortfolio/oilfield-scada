@@ -1,5 +1,4 @@
-namespace Ingestion;
-
+namespace Shared;
 /// Datos de conexion a TimescaleDB.
 /// La contrasena NO sale del JSON: viene de la variable de entorno Database__Password.
 public sealed class DatabaseOptions
