@@ -343,3 +343,232 @@ separador tiene volumen y no salta.
 - **El servidor no acepta escrituras.** Todos los tags son de solo lectura. Cambiar el
   setpoint de frecuencia de un pozo desde un cliente OPC UA sería el paso natural para
   demostrar el camino inverso, pero excede el alcance de un sistema de monitoreo.
+
+## Fase 3 — Ingesta y base de datos
+
+### Qué hace esta fase
+
+La Fase 2 dejó los datos disponibles en la red, pero volátiles: quien no estuviera
+conectado en el instante exacto de una medición, la perdía para siempre. Esta fase agrega
+la memoria del sistema. Un cliente OPC UA propio se suscribe a los 35 tags del yacimiento
+y los persiste en TimescaleDB, de modo que el dashboard de la Fase 4 pueda dibujar
+tendencias y el motor de alarmas de la Fase 5 pueda razonar sobre lo que pasó, no solo
+sobre el valor actual.
+
+Es el punto donde el proyecto cruza de OT a IT: hasta acá todo era protocolo industrial;
+de acá en adelante son bases de datos y HTTP.
+
+### Decisiones de diseño
+
+**1. Esquema largo, no una columna por tag.**
+
+Cada lectura es una fila de `(instante, tag, valor, calidad)`, en lugar de una fila por
+instante con 35 columnas. Es como guardan los historians reales —PI System, IP.21,
+Canary— y la razón es que los datos **no llegan sincronizados**: con deadband, cada tag
+reporta cuando cambia lo suficiente, así que una fila ancha obligaría a inventar valores
+para las columnas que no se movieron.
+
+El costo es que toda consulta necesita un `JOIN` con el catálogo de tags. La ventaja es
+que agregar un pozo, un equipo o un tag no requiere tocar la estructura de la tabla: se
+inserta una fila más en `tags` y listo.
+
+**2. La calidad se guarda, no solo el valor.**
+
+OPC UA no devuelve un número pelado: devuelve un `DataValue` con valor, timestamp y
+`StatusCode`. Ese código dice si la lectura es confiable, dudosa o inválida —por ejemplo,
+si el sensor se desconectó del PLC. Guardarlo permite que la Fase 5 no dispare alarmas
+con datos basura.
+
+El `StatusCode` completo son 32 bits con mucho detalle; acá se resume a un `SMALLINT`:
+`0 = Good`, `1 = Uncertain`, `2 = Bad`. Es lo que se consulta en la práctica.
+
+**3. El timestamp es el del servidor, no el de la escritura.**
+
+Se guarda el `SourceTimestamp` del `DataValue` —el instante en que el valor se generó en
+el origen— y no `DateTime.UtcNow` al momento de escribir. La diferencia importa: entre que
+el dato se mide y se persiste hay latencia de red y hasta dos segundos de buffer. Un
+historian tiene que reflejar cuándo pasó algo, no cuándo se enteró la base.
+
+Todo se almacena en `TIMESTAMPTZ`, que Postgres normaliza a UTC. La conversión a hora
+local es responsabilidad de quien muestra el dato.
+
+**4. Deadband porcentual, configurable.**
+
+Cada `MonitoredItem` analógico lleva un `DataChangeFilter` con deadband **porcentual**:
+el umbral se expresa como porcentaje del rango de ingeniería del tag, así un solo número
+sirve para presiones, caudales y vibración, cada uno escalado a su propia escala.
+
+El valor está en `appsettings.json` (`DeadbandPercent`) y se calibró de forma empírica:
+
+| Deadband | Filas por minuto | Efecto |
+|---|---|---|
+| 0.5 % | ~120 | Filtra casi todo el ruido; deja huecos de 20–30 s por tag |
+| 0.2 % | ~350 | Silencia los tags estables, conserva densidad para graficar |
+| 0 % | ~2100 | Sin filtro: 35 valores por segundo |
+
+Se eligió 0.2 %. En un despliegue real el número se sube bastante más, porque el objetivo
+es reducir tráfico y almacenamiento a lo largo de años; acá el objetivo es una demo de
+minutos que tenga con qué dibujar una curva.
+
+El `Status` de cada pozo se suscribe **sin filtro**: es un valor discreto, no tiene rango
+de ingeniería, y cualquier cambio de estado interesa. El filtro usa
+`DataChangeTrigger.StatusValue`, de modo que una caída de calidad también se reporta
+aunque el número no se haya movido.
+
+**5. El callback no escribe: encola.**
+
+La notificación de la suscripción corre en el hilo del stack OPC UA y tiene que devolver
+rápido. Por eso solo encola en una `ConcurrentQueue` en memoria; un loop aparte, con
+`PeriodicTimer`, vacía la cola cada dos segundos y la escribe en un solo lote.
+
+Desacoplar recepción de escritura es lo que hace cualquier ingesta seria: si la base se
+pone lenta o se cae un momento, la lectura de OPC UA no se frena y el buffer absorbe la
+diferencia. El volcado está envuelto en `try/catch` y un fallo pierde ese lote pero no
+mata el proceso.
+
+**6. Escritura con COPY binario.**
+
+El lote se escribe con `COPY ... FROM STDIN (FORMAT BINARY)`, el mecanismo de carga
+masiva de Postgres, en lugar de un `INSERT` por fila. Los valores viajan tipados
+(`NpgsqlDbType.Double`), nunca convertidos a texto, lo que además elimina de raíz el
+problema de la coma decimal de la cultura es-AR.
+
+El índice `(tag_id, ts)` es **único**, así que un lote con un par repetido abortaría
+entero. Antes de escribir se deduplica en memoria conservando la última lectura de cada
+par.
+
+**7. El catálogo de tags se sincroniza desde el modelo.**
+
+La tabla `tags` no se puebla con `INSERT` escritos a mano. Al arrancar, la ingesta recorre
+el `Oilfield` —de donde salen los nombres de los pozos— y los catálogos de tags, arma los
+35 nombres calificados y los inserta con `ON CONFLICT DO NOTHING`. Es idempotente: correr
+la app cien veces deja la tabla igual.
+
+Para que esto fuera posible, `WellTagCatalog` y `EquipmentTagCatalog` se movieron de
+`OpcUaServer` a `Shared`. Ahora el servidor y la ingesta leen la misma definición: los
+nombres de la base no pueden desincronizarse de los NodeIds que publica OPC UA, porque
+salen del mismo lugar.
+
+**8. Reconexión automática.**
+
+La sesión OPC UA mantiene un *keep-alive*: un latido periódico contra el servidor. Si
+falla, el evento `KeepAlive` llega con estado malo y se dispara un
+`SessionReconnectHandler`, que reintenta cada 5 segundos hasta recuperar la comunicación
+y **reactiva la suscripción existente** en vez de crear una nueva.
+
+Un flag interno distingue una caída real de un cierre ordenado de la aplicación; sin él,
+apagar la ingesta a propósito dispararía un intento de reconexión.
+
+Durante la caída no se escribe nada, y eso es deliberado: el historial queda con un hueco
+que refleja que en ese lapso nadie midió. Interpolar habría sido inventar datos.
+
+### Estructura del código
+
+| Archivo | Responsabilidad |
+|---|---|
+| `Program.cs` | Arma la configuración y el logger, sincroniza el catálogo, conecta el cliente OPC UA, y corre el loop de volcado. |
+| `DatabaseOptions.cs` | Espeja la sección `Database` de `appsettings.json` y construye la cadena de conexión. |
+| `OpcUaOptions.cs` | Espeja la sección `OpcUa`: endpoint, intervalo de publicación, deadband, keep-alive y período de reintento. |
+| `OpcUaClient.cs` | Sesión OPC UA, suscripción con deadband y reconexión automática. |
+| `TagRepository.cs` | Sincroniza el catálogo de tags y devuelve el mapa `nombre → tag_id`. |
+| `MeasurementRepository.cs` | Escritura masiva del lote con `COPY` binario. |
+| `Measurement.cs` | El registro de una lectura lista para persistir. |
+| `sql/001_schema.sql` | Creación de las tablas y de la hypertable. |
+| `docker-compose.yml` | TimescaleDB, en la raíz del repositorio. |
+
+### Esquema de la base
+
+```sql
+tags         (tag_id, name, equipment, variable, unit, eu_min, eu_max)
+measurements (ts, tag_id, value, quality)   -- hypertable, chunk de 1 día
+```
+
+`tags` es un catálogo chico y estable: 35 filas, una por variable. `name` es el nombre
+calificado (`POZO-A/THP`), idéntico al NodeId que publica el servidor OPC UA, y tiene
+restricción de unicidad.
+
+`measurements` es la serie temporal. Se convierte en **hypertable** con
+`create_hypertable(...)`: TimescaleDB la parte por detrás en trozos por rango de fechas
+—*chunks*—, de modo que una consulta acotada en el tiempo toca solo los trozos relevantes
+en lugar de recorrer la tabla entera. Para el código SQL sigue siendo una tabla común.
+
+El índice `(tag_id, ts DESC)` cubre la consulta típica del dashboard —la serie de un tag
+en una ventana de tiempo, del más nuevo al más viejo— y de paso impide duplicados.
+
+### Credenciales
+
+Las de la base viven en un `.env` en la raíz, que Docker Compose lee al levantar el
+contenedor y que **no se commitea**. Se versiona un `.env.example` con las claves vacías,
+para que quien clone el repositorio sepa qué tiene que definir.
+
+La ingesta no lee ese archivo: toma la contraseña de la variable de entorno
+`Database__Password`. La configuración de .NET se arma por capas —primero
+`appsettings.json`, después el entorno, que pisa lo anterior— y el doble guión bajo
+representa el anidamiento. Así el resto de los parámetros de conexión quedan versionados y
+visibles, y el único dato sensible nunca toca el repositorio.
+
+### Verificación
+
+Con TimescaleDB levantado, el servidor OPC UA corriendo y la ingesta en marcha, una
+corrida de aproximadamente un minuto con deadband 0.2 % escribió 351 filas, y el `count`
+de la tabla coincidió exactamente con el total reportado por la aplicación.
+
+Consulta de control, que es también la que usará el dashboard:
+
+```sql
+SELECT t.name, m.ts, m.value, m.quality
+FROM measurements m
+JOIN tags t ON t.tag_id = m.tag_id
+ORDER BY m.ts DESC
+LIMIT 8;
+```
+
+**Prueba de reconexión.** Con la cadena corriendo se apagó el servidor OPC UA. La ingesta
+reportó `BadConnectionClosed`, volcó lo que tenía en el buffer y quedó reintentando sin
+morirse. Al levantar el servidor de nuevo, cuarenta segundos después, recuperó la sesión
+con los 35 monitored items intactos y los volcados retomaron solos. El historial quedó con
+un hueco de esos cuarenta segundos, que es el resultado correcto.
+
+### Un error que costó y conviene no repetir
+
+Durante buena parte de la fase, `appsettings.json` **no se estaba leyendo**. La aplicación
+corría íntegramente con los valores por defecto de las clases de opciones, y nadie lo
+notaba porque esos defaults coincidían con el contenido del archivo. El primer valor que
+difirió —el deadband— fue el que delató el problema.
+
+La causa: `Host.CreateApplicationBuilder` busca la configuración en el directorio de
+trabajo, y la app se ejecuta con `dotnet run --project src\Ingestion` desde la raíz del
+repositorio. El archivo se copia junto al ejecutable, no a la raíz, así que nunca lo
+encontraba. Como la configuración es opcional por diseño, no hubo error ni advertencia.
+
+Se corrige anclando el *content root* al directorio del ejecutable:
+
+```csharp
+var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory
+});
+```
+
+`OpcUaServer` no tenía el problema: ya usaba `SetBasePath(AppContext.BaseDirectory)` desde
+la Fase 2.
+
+La lección de fondo es sobre el diagnóstico. Que un valor por defecto coincida con el
+configurado hace invisible una falla de configuración; conviene verificar que la
+configuración se lee leyendo una clave cruda (`Configuration["Seccion:Clave"]`) y no
+inferirlo del comportamiento.
+
+### Pendientes conocidos
+
+- **Compresión sin configurar.** El argumento a favor del esquema largo se apoya en la
+  compresión columnar de TimescaleDB, que agrupa por `tag_id` y reduce el tamaño de forma
+  drástica. Todavía no está habilitada: con datos de minutos no cambia nada, pero es lo
+  primero que habría que activar para un despliegue real.
+- **Sin política de retención.** La tabla crece sin límite. TimescaleDB permite descartar
+  chunks viejos automáticamente.
+- **La ingesta no reintenta lotes fallidos.** Si el volcado falla, ese lote se pierde. Un
+  buffer en disco o una cola persistente sería lo siguiente.
+- **Warnings de API obsoleta** en el cliente OPC UA, de la misma familia que los del
+  servidor: la versión 1.5.378 del stack migra a firmas que reciben un
+  `ITelemetryContext`. Se resuelven junto con la seguridad, en la Fase 6.
