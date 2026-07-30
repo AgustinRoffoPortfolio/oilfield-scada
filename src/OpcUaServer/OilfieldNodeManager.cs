@@ -26,11 +26,20 @@ public class OilfieldNodeManager : CustomNodeManager2
     {
         lock (Lock)
         {
-            // 1) El tipo: qué variables tiene un pozo. Cuelga de BaseObjectType.
-            var wellType = CreateWellType();
-            LinkToParent(externalReferences, ObjectTypeIds.BaseObjectType,
-                wellType.NodeId, ReferenceTypeIds.HasSubtype);
-            AddPredefinedNode(SystemContext, wellType);
+            // 1) Los tipos. Los tres cuelgan de BaseObjectType.
+            var types = new[]
+            {
+                CreateWellType(),
+                CreateObjectType("SeparatorType", SeparatorTagCatalog.Analog),
+                CreateObjectType("PipelineType", PipelineTagCatalog.Analog)
+            };
+
+            foreach (var type in types)
+            {
+                LinkToParent(externalReferences, ObjectTypeIds.BaseObjectType,
+                    type.NodeId, ReferenceTypeIds.HasSubtype);
+                AddPredefinedNode(SystemContext, type);
+            }
 
             // 2) La carpeta donde viven las instancias.
             var root = new FolderState(null)
@@ -44,12 +53,15 @@ public class OilfieldNodeManager : CustomNodeManager2
             LinkToParent(externalReferences, ObjectIds.ObjectsFolder,
                 root.NodeId, ReferenceTypeIds.Organizes);
 
-            // 3) Un nodo por cada pozo del simulador. Tienen que existir ANTES
-            //    del AddPredefinedNode, que registra la rama completa de una vez.
+            // 3) Las instancias, en el orden en que fluye el fluido.
+            //    Tienen que existir ANTES del AddPredefinedNode, que registra
+            //    la rama completa de una vez.
             foreach (var well in _oilfield.Wells)
             {
                 CreateWell(root, well);
             }
+            CreateSeparator(root, _oilfield.Separator);
+            CreatePipeline(root, _oilfield.Pipeline);
 
             AddPredefinedNode(SystemContext, root);
         }
@@ -81,26 +93,36 @@ public class OilfieldNodeManager : CustomNodeManager2
         }
     }
 
-    /// Declara WellType con sus tags como componentes obligatorios.
-    private BaseObjectTypeState CreateWellType()
+    // ---------- Declaración de tipos ----------
+
+    /// Declara un ObjectType con sus tags analógicos como componentes obligatorios.
+    private BaseObjectTypeState CreateObjectType(string typeName, TagDefinition[] tags)
     {
-        var wellType = new BaseObjectTypeState
+        var type = new BaseObjectTypeState
         {
-            NodeId = new NodeId("WellType", NamespaceIndex),
-            BrowseName = new QualifiedName("WellType", NamespaceIndex),
-            DisplayName = "WellType",
+            NodeId = new NodeId(typeName, NamespaceIndex),
+            BrowseName = new QualifiedName(typeName, NamespaceIndex),
+            DisplayName = typeName,
             SuperTypeId = ObjectTypeIds.BaseObjectType,
             IsAbstract = false
         };
-        wellType.AddReference(ReferenceTypeIds.HasSubtype, true, ObjectTypeIds.BaseObjectType);
+        type.AddReference(ReferenceTypeIds.HasSubtype, true, ObjectTypeIds.BaseObjectType);
 
-        foreach (var tag in WellTagCatalog.Analog)
+        foreach (var tag in tags)
         {
-            var variable = CreateAnalogTag(wellType, $"WellType/{tag.Name}", tag);
-            // Mandatory: toda instancia de WellType tiene que traer este tag.
+            var variable = CreateAnalogTag(type, $"{typeName}/{tag.Name}", tag);
+            // Mandatory: toda instancia del tipo tiene que traer este tag.
             variable.ModellingRuleId = ObjectIds.ModellingRule_Mandatory;
-            wellType.AddChild(variable);
+            type.AddChild(variable);
         }
+
+        return type;
+    }
+
+    /// WellType es un ObjectType común más el tag de estado.
+    private BaseObjectTypeState CreateWellType()
+    {
+        var wellType = CreateObjectType("WellType", WellTagCatalog.Analog);
 
         var statusTemplate = CreateStatusTag(wellType, "WellType/Status");
         statusTemplate.ModellingRuleId = ObjectIds.ModellingRule_Mandatory;
@@ -109,48 +131,80 @@ public class OilfieldNodeManager : CustomNodeManager2
         return wellType;
     }
 
-    /// Crea un pozo como instancia de WellType y lo ata a sus sensores.
-    private BaseObjectState CreateWell(NodeState parent, Well well)
+    // ---------- Creación de instancias ----------
+
+    /// Crea un equipo como instancia de un tipo y ata cada tag a su sensor.
+    /// El delegado sensorFor traduce nombre de tag a sensor del modelo físico.
+    private BaseObjectState CreateInstance(NodeState parent, string name, string typeName,
+        TagDefinition[] tags, Func<string, Sensor> sensorFor)
     {
         var node = new BaseObjectState(parent)
         {
-            NodeId = new NodeId(well.Name, NamespaceIndex),
-            BrowseName = new QualifiedName(well.Name, NamespaceIndex),
-            DisplayName = well.Name,
-            TypeDefinitionId = new NodeId("WellType", NamespaceIndex),
+            NodeId = new NodeId(name, NamespaceIndex),
+            BrowseName = new QualifiedName(name, NamespaceIndex),
+            DisplayName = name,
+            TypeDefinitionId = new NodeId(typeName, NamespaceIndex),
             ReferenceTypeId = ReferenceTypeIds.Organizes,
             EventNotifier = EventNotifiers.None
         };
 
-        foreach (var tag in WellTagCatalog.Analog)
+        foreach (var tag in tags)
         {
-            var variable = CreateAnalogTag(node, $"{well.Name}/{tag.Name}", tag);
+            var variable = CreateAnalogTag(node, $"{name}/{tag.Name}", tag);
             node.AddChild(variable);
-            _analogBindings.Add((variable, SensorFor(well, tag.Name)));
+            _analogBindings.Add((variable, sensorFor(tag.Name)));
         }
-
-        var status = CreateStatusTag(node, $"{well.Name}/Status");
-        node.AddChild(status);
-        _statusBindings.Add((status, well));
 
         parent.AddChild(node);
         return node;
     }
 
-    /// Traduce el nombre del tag al sensor correspondiente del modelo físico.
-    private static Sensor SensorFor(Well well, string tagName) => tagName switch
+    private void CreateWell(NodeState parent, Well well)
     {
-        "THP" => well.WellheadPressure,
-        "CHP" => well.CasingPressure,
-        "T_head" => well.HeadTemperature,
-        "Q_oil" => well.OilRate,
-        "Q_water" => well.WaterRate,
-        "Q_gas" => well.GasRate,
-        "ESP_current" => well.EspCurrent,
-        "ESP_freq" => well.EspFrequency,
-        "ESP_vib" => well.EspVibration,
-        _ => throw new ArgumentException($"Tag sin sensor asociado: {tagName}")
-    };
+        var node = CreateInstance(parent, well.Name, "WellType", WellTagCatalog.Analog,
+            tagName => tagName switch
+            {
+                "THP" => well.WellheadPressure,
+                "CHP" => well.CasingPressure,
+                "T_head" => well.HeadTemperature,
+                "Q_oil" => well.OilRate,
+                "Q_water" => well.WaterRate,
+                "Q_gas" => well.GasRate,
+                "ESP_current" => well.EspCurrent,
+                "ESP_freq" => well.EspFrequency,
+                "ESP_vib" => well.EspVibration,
+                _ => throw new ArgumentException($"Tag sin sensor asociado: {tagName}")
+            });
+
+        var status = CreateStatusTag(node, $"{well.Name}/Status");
+        node.AddChild(status);
+        _statusBindings.Add((status, well));
+    }
+
+    private void CreateSeparator(NodeState parent, Separator separator)
+    {
+        CreateInstance(parent, "Separator", "SeparatorType", SeparatorTagCatalog.Analog,
+            tagName => tagName switch
+            {
+                "Sep_P" => separator.Pressure,
+                "Sep_level" => separator.Level,
+                _ => throw new ArgumentException($"Tag sin sensor asociado: {tagName}")
+            });
+    }
+
+    private void CreatePipeline(NodeState parent, Pipeline pipeline)
+    {
+        CreateInstance(parent, "Pipeline", "PipelineType", PipelineTagCatalog.Analog,
+            tagName => tagName switch
+            {
+                "Pipe_P_in" => pipeline.InletPressure,
+                "Pipe_P_out" => pipeline.OutletPressure,
+                "Pipe_Q" => pipeline.TotalFlow,
+                _ => throw new ArgumentException($"Tag sin sensor asociado: {tagName}")
+            });
+    }
+
+    // ---------- Fábricas de variables ----------
 
     /// Crea una variable analógica con unidad de ingeniería y rango de escala.
     private AnalogItemState CreateAnalogTag(NodeState parent, string id, TagDefinition tag)
