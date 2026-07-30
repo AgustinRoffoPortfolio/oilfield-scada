@@ -16,8 +16,8 @@ public class OilfieldNodeManager : CustomNodeManager2
     private readonly List<(MultiStateDiscreteState Node, Well Well)> _statusBindings = new();
 
     public OilfieldNodeManager(IServerInternal server, ApplicationConfiguration configuration,
-        Oilfield oilfield)
-        : base(server, configuration, "http://oilfield-scada/")
+        Oilfield oilfield, string namespaceUri)
+        : base(server, configuration, namespaceUri)
     {
         _oilfield = oilfield;
     }

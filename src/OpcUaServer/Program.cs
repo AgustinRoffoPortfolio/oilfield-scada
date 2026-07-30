@@ -1,13 +1,23 @@
 ﻿using System.Net;
+using Microsoft.Extensions.Configuration;
 using Opc.Ua;
 using Opc.Ua.Configuration;
 using OpcUaServer;
 using Shared;
 
+// Lee appsettings.json desde la carpeta de salida y lo mapea a OpcUaOptions.
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: false)
+    .Build();
+
+var options = configuration.GetSection("OpcUa").Get<OpcUaOptions>()
+    ?? throw new InvalidOperationException("Falta la sección 'OpcUa' en appsettings.json");
+
 // Identidad de la aplicación ante la red OPC UA.
 var application = new ApplicationInstance
 {
-    ApplicationName = "OilfieldScadaServer",
+    ApplicationName = options.ApplicationName,
     ApplicationType = ApplicationType.Server
 };
 
@@ -15,11 +25,11 @@ var application = new ApplicationInstance
 await application.Build(
         applicationUri: $"urn:{Dns.GetHostName()}:OilfieldScada:Server",
         productUri: "https://github.com/AgustinRoffoPortfolio/oilfield-scada")
-    .AsServer(new[] { "opc.tcp://localhost:4840/OilfieldScada" })
+    .AsServer(new[] { options.EndpointUrl })
     .AddUnsecurePolicyNone()
     .AddUserTokenPolicy(UserTokenType.Anonymous)
     .AddSecurityConfiguration(
-        subjectName: "CN=OilfieldScadaServer, C=AR, O=Portfolio",
+        subjectName: $"CN={options.ApplicationName}, C=AR, O=Portfolio",
         pkiRoot: "%LocalApplicationData%/OPC Foundation/pki")
     .SetAutoAcceptUntrustedCertificates(true)
     .CreateAsync();
@@ -29,17 +39,19 @@ await application.CheckApplicationInstanceCertificatesAsync(silent: true);
 
 // El yacimiento simulado: la misma clase que usa el proyecto Simulator.
 var oilfield = new Oilfield();
-var server = new OilfieldServer(oilfield);
+var server = new OilfieldServer(oilfield, options.NamespaceUri);
 await application.StartAsync(server);
 
-// Cada segundo: avanzar la física y publicar los valores nuevos.
+// Cada ciclo: avanzar la física y publicar los valores nuevos.
+var interval = TimeSpan.FromMilliseconds(options.UpdateIntervalMs);
 using var timer = new Timer(_ =>
 {
-    oilfield.Step(1.0);
+    oilfield.Step(interval.TotalSeconds);
     server.NodeManager?.UpdateValues();
-}, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+}, null, TimeSpan.Zero, interval);
 
-Console.WriteLine("Servidor OPC UA escuchando en opc.tcp://localhost:4840/OilfieldScada");
+Console.WriteLine($"Servidor OPC UA escuchando en {options.EndpointUrl}");
+Console.WriteLine($"Ciclo de actualizacion: {options.UpdateIntervalMs} ms");
 Console.WriteLine("Enter para detener.");
 Console.ReadLine();
 
