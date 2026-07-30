@@ -1,8 +1,10 @@
 ﻿using System.Net;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Opc.Ua;
 using Opc.Ua.Configuration;
 using OpcUaServer;
+using Serilog;
 using Shared;
 
 // Lee appsettings.json desde la carpeta de salida y lo mapea a OpcUaOptions.
@@ -12,10 +14,23 @@ var configuration = new ConfigurationBuilder()
     .Build();
 
 var options = configuration.GetSection("OpcUa").Get<OpcUaOptions>()
-    ?? throw new InvalidOperationException("Falta la sección 'OpcUa' en appsettings.json");
+    ?? throw new InvalidOperationException("Falta la seccion 'OpcUa' en appsettings.json");
+
+// Logger de toda la aplicación.
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    // El stack es muy verboso. Sus mensajes salen firmados con el nombre de
+    // nuestra subclase, porque crea el logger con el tipo en runtime.
+    .MinimumLevel.Override("Opc.Ua", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("OpcUaServer.OilfieldServer", Serilog.Events.LogEventLevel.Warning)
+    .WriteTo.Console()
+    .CreateLogger();
+
+// El stack OPC UA no tiene logger propio: usa el que le pasemos por acá.
+var telemetry = DefaultTelemetry.Create(builder => builder.AddSerilog(Log.Logger));
 
 // Identidad de la aplicación ante la red OPC UA.
-var application = new ApplicationInstance
+var application = new ApplicationInstance(telemetry)
 {
     ApplicationName = options.ApplicationName,
     ApplicationType = ApplicationType.Server
@@ -46,14 +61,24 @@ await application.StartAsync(server);
 var interval = TimeSpan.FromMilliseconds(options.UpdateIntervalMs);
 using var timer = new Timer(_ =>
 {
-    oilfield.Step(interval.TotalSeconds);
-    server.NodeManager?.UpdateValues();
+    try
+    {
+        oilfield.Step(interval.TotalSeconds);
+        server.NodeManager?.UpdateValues();
+    }
+    catch (Exception ex)
+    {
+        // Una excepción sin atrapar dentro de un callback de Timer
+        // termina el proceso entero.
+        Log.Error(ex, "Fallo el ciclo de actualizacion");
+    }
 }, null, TimeSpan.Zero, interval);
 
-Console.WriteLine($"Servidor OPC UA escuchando en {options.EndpointUrl}");
-Console.WriteLine($"Ciclo de actualizacion: {options.UpdateIntervalMs} ms");
-Console.WriteLine("Enter para detener.");
+Log.Information("Servidor OPC UA escuchando en {Endpoint}", options.EndpointUrl);
+Log.Information("Ciclo de actualizacion: {IntervalMs} ms", options.UpdateIntervalMs);
+Log.Information("Enter para detener.");
 Console.ReadLine();
 
 await application.StopAsync();
-Console.WriteLine("Servidor detenido.");
+Log.Information("Servidor detenido.");
+await Log.CloseAndFlushAsync();
