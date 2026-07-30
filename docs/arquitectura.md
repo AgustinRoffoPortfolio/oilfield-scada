@@ -48,6 +48,10 @@ Endpoint publicado:
 opc.tcp://localhost:4840/OilfieldScada
 ```
 
+Stack: `OPCFoundation.NetStandard.Opc.Ua.Server` 1.5.378, la implementación oficial de la
+OPC Foundation, certificada por un laboratorio de conformidad y la misma que se usa en
+producción en la industria.
+
 ### Decisiones de diseño
 
 **1. El servidor hospeda al simulador en el mismo proceso.**
@@ -81,12 +85,12 @@ nodo llamado `THP` y no hay ambigüedad, porque el identificador completo incluy
 Es el mismo problema que en C se resuelve prefijando símbolos (`mimodulo_thp`), pero
 formalizado por la especificación y resuelto en tiempo de ejecución.
 
-**3. `WellType` como tipo, no tres carpetas sueltas.**
+**3. Tipos declarados, no carpetas sueltas.**
 
-Había dos formas de armar el árbol. La simple: para cada pozo, crear una carpeta y
-colgarle sus diez variables. La elegida: declarar **una vez** qué es un pozo —un
-`ObjectType` llamado `WellType`, con sus diez tags marcados como `Mandatory`— y después
-crear tres objetos que declaran ser de ese tipo.
+Había dos formas de armar el árbol. La simple: para cada equipo, crear una carpeta y
+colgarle sus variables. La elegida: declarar **una vez** qué es un pozo —un `ObjectType`
+llamado `WellType`, con sus diez tags marcados como `Mandatory`— y después crear tres
+objetos que declaran ser de ese tipo. Lo mismo para `SeparatorType` y `PipelineType`.
 
 En UaExpert el árbol de instancias se ve casi igual, pero hay dos diferencias que
 importan:
@@ -94,20 +98,21 @@ importan:
 - El tipo queda publicado en `Root → Types → ObjectTypes`. Un cliente puede preguntar
   "¿qué es esto?" y recibir "es un `WellType`, y todo `WellType` tiene THP, CHP,
   ESP_vib..." en lugar de "es una carpeta con cosas adentro".
-- Los tags se definen en un solo lugar (`WellTagCatalog`), que alimenta tanto la
-  declaración del tipo como cada instancia. Agregar un tag nuevo es una línea, y aparece
-  en el tipo y en los tres pozos a la vez.
+- Los tags se definen en un solo lugar (`WellTagCatalog`, `SeparatorTagCatalog`,
+  `PipelineTagCatalog`), que alimenta tanto la declaración del tipo como cada instancia.
+  Agregar un tag nuevo es una línea, y aparece en el tipo y en todas las instancias a la
+  vez.
 
 Así funcionan las *companion specifications*: los modelos de información que la industria
 publica por rubro (bombas, analizadores, máquinas herramienta) para que un equipo de
 cualquier fabricante se describa de la misma manera.
 
 Limitación conocida: el stack solo sabe instanciar un tipo automáticamente cuando el tipo
-proviene de un archivo NodeSet o de código generado con el ModelCompiler. El nuestro está
-escrito a mano, así que las instancias se construyen recorriendo el mismo catálogo. La
-ventaja del modelado se conserva —fuente única de verdad, tipo publicado y consultable—;
-lo que no tenemos es la instanciación automática, que es una comodidad interna y no algo
-que el cliente perciba.
+proviene de un archivo NodeSet o de código generado con el ModelCompiler. Los nuestros
+están escritos a mano, así que las instancias se construyen recorriendo el mismo catálogo.
+La ventaja del modelado se conserva —fuente única de verdad, tipo publicado y
+consultable—; lo que no tenemos es la instanciación automática, que es una comodidad
+interna y no algo que el cliente perciba.
 
 **4. Endpoint sin seguridad, deliberadamente.**
 
@@ -130,10 +135,13 @@ commitear una clave privada por accidente.
 
 | Archivo | Responsabilidad |
 |---|---|
-| `Program.cs` | Configura la aplicación OPC UA, crea el `Oilfield`, arranca el servidor y corre el timer de actualización. |
+| `Program.cs` | Lee la configuración, arma el logger, configura la aplicación OPC UA, crea el `Oilfield`, arranca el servidor y corre el timer de actualización. |
+| `OpcUaOptions.cs` | Clase que espeja la sección `OpcUa` de `appsettings.json`. |
+| `appsettings.json` | Endpoint, URI del namespace e intervalo de actualización. |
 | `OilfieldServer.cs` | Hereda de `StandardServer`. Su único trabajo es registrar nuestro NodeManager. |
-| `OilfieldNodeManager.cs` | Construye el árbol (tipo + instancias) y copia los valores del simulador a los nodos. |
-| `WellTagCatalog.cs` | Define los tags de un pozo una sola vez: nombre, unidad, rango de escala y descripción. |
+| `OilfieldNodeManager.cs` | Construye el árbol (tipos + instancias) y copia los valores del simulador a los nodos. |
+| `WellTagCatalog.cs` | Define los tags de un pozo una sola vez: nombre, unidad, rango de escala y descripción. Contiene también el `record TagDefinition`. |
+| `EquipmentTagCatalog.cs` | Lo mismo para el separador y el ducto. |
 
 ### Modelo de datos
 
@@ -152,17 +160,29 @@ Root
     │   │   └── Status              (MultiStateDiscreteState)
     │   │       └── EnumStrings         → [STOPPED, RUNNING, FAULT]
     │   ├── POZO-B
-    │   └── POZO-C
+    │   ├── POZO-C
+    │   ├── Separator               (TypeDefinition = SeparatorType)
+    │   │   └── Sep_P, Sep_level
+    │   └── Pipeline                (TypeDefinition = PipelineType)
+    │       └── Pipe_P_in, Pipe_P_out, Pipe_Q
     └── Server                      (autodescripción, la trae el stack)
 
 Types
 └── ObjectTypes
     └── BaseObjectType
-        └── WellType                (los 10 tags, todos Mandatory)
+        ├── WellType                (10 tags, todos Mandatory)
+        ├── SeparatorType           (2 tags)
+        └── PipelineType            (3 tags)
 ```
 
-Los nueve tags analógicos usan `AnalogItemState`, el tipo estándar para una medición
-analógica. Trae dos propiedades de fábrica:
+El orden de las instancias sigue el recorrido del fluido: los pozos producen, el
+separador recibe la suma de los tres, y el ducto transporta lo que sale del separador.
+Ninguna etapa inventa datos; procesa lo que le entrega la anterior. Por eso una falla
+inyectada en un pozo se propaga hasta la presión de salida del ducto sin que nadie
+programe esa propagación.
+
+Los tags analógicos usan `AnalogItemState`, el tipo estándar para una medición analógica.
+Trae dos propiedades de fábrica:
 
 - **EngineeringUnits** — la unidad (bar, °C, m³/d). Un cliente puede mostrar
   "33.7 bar" sin que nadie se lo haya configurado a mano.
@@ -183,6 +203,17 @@ analógica. Trae dos propiedades de fábrica:
 | `ESP_freq` | Hz | 0 – 70 | 35 – 60 |
 | `ESP_vib` | mm/s | 0 – 12 | 0.5 – 7.0 |
 
+| Tag | Equipo | Unidad | Escala del instrumento |
+|---|---|---|---|
+| `Sep_P` | Separador | bar | 0 – 20 |
+| `Sep_level` | Separador | % | 0 – 100 |
+| `Pipe_P_in` | Ducto | bar | 0 – 20 |
+| `Pipe_P_out` | Ducto | bar | 0 – 20 |
+| `Pipe_Q` | Ducto | m³/d | 0 – 800 |
+
+El separador y el ducto no tienen tag de estado: no son equipos que arranquen y paren,
+son recipientes y cañerías por donde pasa el fluido.
+
 El estado del pozo usa `MultiStateDiscreteState`: guarda un entero y publica al lado la
 lista de etiquetas en la propiedad `EnumStrings`. Es la diferencia con un `enum` de C,
 donde los nombres desaparecen al compilar: acá el cliente lee el valor `1` y también las
@@ -197,7 +228,7 @@ detenido. Derivarlas hace que la desincronización sea imposible.
 
 Un `Timer` en `Program.cs` dispara cada segundo:
 
-1. `oilfield.Step(1.0)` — avanza un segundo de física en todo el yacimiento.
+1. `oilfield.Step(dt)` — avanza la física de todo el yacimiento.
 2. `nodeManager.UpdateValues()` — copia cada `Sensor.Value` a su nodo y llama a
    `ClearChangeMasks`.
 
@@ -221,15 +252,58 @@ ruido y sus fallas— y no `Sensor.TrueValue`, que es el valor físico real. Esa
 viene del modelo de la Fase 1 y es lo que permite simular un sensor congelado o con
 deriva: el SCADA ve lo que vería en la realidad, no la verdad del yacimiento.
 
+### Configuración y logging
+
+**Configuración.** El endpoint, la URI del namespace y el intervalo de actualización
+viven en `appsettings.json` y se mapean a la clase `OpcUaOptions` con
+`Microsoft.Extensions.Configuration`. Nada de eso está escrito en el código.
+
+El intervalo se expresa en **milisegundos enteros** y no en segundos con decimales, a
+propósito: el binder convierte texto a número según la cultura de la máquina, y en es-AR
+el separador decimal es la coma. Un entero no puede interpretarse mal. Regla general para
+este proyecto: en archivos de configuración, enteros y unidad explícita en el nombre de
+la clave.
+
+El paso de simulación se deriva del intervalo real (`interval.TotalSeconds`), así que
+cambiar la frecuencia del ciclo no distorsiona la física.
+
+**Logging.** Serilog, con salida estructurada a consola. Los mensajes usan plantillas con
+propiedades nombradas (`"Servidor escuchando en {Endpoint}"`), de modo que el valor queda
+guardado aparte del texto y se puede filtrar sin parsear cadenas.
+
+La versión 1.5.378 del stack rehízo su modelo de observabilidad: reemplazó el logger
+global por la interfaz `ITelemetryContext`, que envuelve una `ILoggerFactory` de .NET. El
+servidor OPC UA no tiene logger propio, usa el que se le pase por constructor. Serilog se
+conecta ahí:
+
+```csharp
+var telemetry = DefaultTelemetry.Create(builder => builder.AddSerilog(Log.Logger));
+var application = new ApplicationInstance(telemetry) { ... };
+```
+
+Con eso, las trazas internas del servidor —sesiones creadas, suscripciones abiertas,
+clientes que se caen— salen por el mismo canal que las nuestras. Es lo que permite
+diagnosticar una pérdida de conexión sin adivinar.
+
+El stack es muy verboso en nivel Information, así que sus categorías están elevadas a
+Warning con `MinimumLevel.Override`. Un detalle no obvio: el servidor crea su logger con
+el tipo **en tiempo de ejecución**, que es nuestra subclase, así que sus mensajes vienen
+firmados como `OpcUaServer.OilfieldServer` y no como algo del namespace `Opc.Ua`. Hacen
+falta las dos anulaciones.
+
+El timer de actualización tiene su propio `try/catch`: una excepción no atrapada dentro
+del callback de un `Timer` no la ve nadie y termina el proceso entero.
+
 ### Verificación
 
 La fase se valida con **UaExpert**, el cliente de referencia de Unified Automation, que
 es la misma herramienta con la que se verifica un servidor OPC UA en un proyecto real.
 
 Conectando a `opc.tcp://localhost:4840/OilfieldScada` (endpoint `None - None`,
-autenticación anónima) y arrastrando POZO-A a la Data Access View, los valores se
-actualizan cada segundo y las relaciones físicas se verifican a mano. Con el setpoint en
-52 Hz y un corte de agua de 0.35:
+autenticación anónima) y arrastrando los equipos a la Data Access View, los valores se
+actualizan cada segundo y las relaciones físicas se verifican a mano.
+
+En un pozo, con el setpoint en 52 Hz y un corte de agua de 0.35:
 
 | Tag | Valor observado | Relación esperada |
 |---|---|---|
@@ -240,21 +314,32 @@ actualizan cada segundo y las relaciones físicas se verifican a mano. Con el se
 | `THP` | 33.7 bar | fricción por caudal²: 15 + 25 × 0.865² = 33.7 |
 | `T_head` | 85.85 °C | aporte térmico: 25 + 70 × 0.865 = 85.6 |
 
-Seis relaciones independientes que dan exacto. Es la diferencia entre un simulador con
-un modelo físico detrás y una función de números aleatorios.
+Y aguas abajo, con los tres pozos produciendo:
+
+| Tag | Valor observado | Relación esperada |
+|---|---|---|
+| `Pipe_P_in` | 10.32 bar | `Sep_P` (10.90) − pérdida en válvula (0.5) |
+| `Pipe_P_out` | 3.98 bar | caída por fricción: 6 × (514.9/500)² = 6.36 bar |
+| `Pipe_Q` | 514.9 m³/d | suma de `Q_oil` + `Q_water` de los tres pozos |
+| `Sep_level` | 50.35 % | el control de nivel llegó a su setpoint de 50 |
+
+Diez relaciones independientes que dan exacto. Es la diferencia entre un simulador con
+un modelo físico detrás y una función de números aleatorios. El último renglón es el que
+más vale: lo que sale del ducto es exactamente lo que produjeron los pozos, sin que nadie
+programe esa correspondencia.
+
+Al reiniciar el servidor, `Sep_P` y `Sep_level` no aparecen en su valor final: se acomodan
+durante los primeros treinta segundos. Es la constante de tiempo del recipiente, porque un
+separador tiene volumen y no salta.
 
 ### Pendientes conocidos
 
-Anotados deliberadamente, no olvidados:
-
-- **Separador y ducto todavía no se exponen.** El modelo de la Fase 1 los simula y el
-  acoplamiento funciona, pero el árbol OPC UA solo publica los tres pozos. Falta un
-  `SeparatorType` y un `PipelineType` con el mismo criterio.
-- **El puerto está hardcodeado** en `Program.cs`. Debe moverse a `appsettings.json` junto
-  con el intervalo del timer y la URI del namespace.
-- **El logging usa `Console.WriteLine`** en lugar de Serilog. El stack además emite sus
-  propias trazas internas por un canal (`ITelemetryContext`) que hoy no está conectado a
-  nada.
-- **Dos warnings de API obsoleta.** El del constructor de `ApplicationInstance` se
-  resuelve al conectar Serilog; el de `AddSecurityConfiguration` pide construir una
-  colección de identificadores de certificado, que es tema de la Fase 6.
+- **Un warning de API obsoleta**, en `AddSecurityConfiguration`: la versión nueva pide
+  construir una colección de identificadores de certificado en lugar de un nombre de
+  sujeto. Es tema de la Fase 6, cuando se configure la seguridad de verdad.
+- **El logging solo va a consola.** Falta un sink a archivo con rotación diaria, que es
+  lo mínimo para poder revisar qué pasó anoche. El nivel mínimo tampoco es configurable
+  desde `appsettings.json` todavía.
+- **El servidor no acepta escrituras.** Todos los tags son de solo lectura. Cambiar el
+  setpoint de frecuencia de un pozo desde un cliente OPC UA sería el paso natural para
+  demostrar el camino inverso, pero excede el alcance de un sistema de monitoreo.
