@@ -6,13 +6,15 @@ using Shared;
 
 namespace Ingestion;
 
-/// Cliente OPC UA: se conecta al servidor del yacimiento y se suscribe a sus tags.
+/// Cliente OPC UA: se conecta al servidor del yacimiento, se suscribe a sus tags
+/// y se reconecta solo si la comunicacion se corta.
 public sealed class OpcUaClient(OpcUaOptions options)
 {
     private ISession? session;
     private Subscription? subscription;
+    private SessionReconnectHandler? reconnectHandler;
+    private bool shuttingDown;
 
-    /// Arma la identidad de la aplicacion y abre la sesion.
     public async Task ConnectAsync()
     {
         var app = new ApplicationInstance
@@ -40,11 +42,46 @@ public sealed class OpcUaClient(OpcUaOptions options)
             sessionName: "OilfieldIngestion",
             sessionTimeout: 60000, identity: new UserIdentity(), preferredLocales: null);
 
+        // Latido: si el servidor no responde en este intervalo, saltan las alarmas.
+        session.KeepAliveInterval = options.KeepAliveIntervalMs;
+        session.KeepAlive += OnKeepAlive;
+
         Log.Information("Sesion OPC UA abierta contra {Endpoint}", endpoint.EndpointUrl);
     }
 
-    /// Se suscribe a los tags indicados. El callback se dispara con cada valor nuevo.
-    /// Se suscribe a los tags indicados. El callback se dispara con cada valor nuevo.
+    /// Se dispara con cada latido. Si viene mal, arranca la reconexion.
+    private void OnKeepAlive(ISession sender, KeepAliveEventArgs e)
+    {
+        if (shuttingDown || !ServiceResult.IsBad(e.Status)) return;
+        if (reconnectHandler is not null) return; // ya hay un reintento en curso
+
+        Log.Warning("Comunicacion OPC UA perdida ({Status}). Reintentando cada {Period} ms",
+            e.Status, options.ReconnectPeriodMs);
+
+        reconnectHandler = new SessionReconnectHandler(reconnectAbort: true);
+        reconnectHandler.BeginReconnect(sender, options.ReconnectPeriodMs, OnReconnectComplete);
+    }
+
+    /// Se dispara cuando el reintento termino, con exito o no.
+    private void OnReconnectComplete(object? sender, EventArgs e)
+    {
+        if (!ReferenceEquals(sender, reconnectHandler)) return;
+
+        // El handler puede devolver la misma sesion revivida o una nueva.
+        var recovered = reconnectHandler?.Session;
+        if (recovered is not null && !ReferenceEquals(recovered, session))
+        {
+            session = recovered;
+            subscription = session.Subscriptions.FirstOrDefault();
+        }
+
+        reconnectHandler?.Dispose();
+        reconnectHandler = null;
+
+        Log.Information("Comunicacion OPC UA restablecida. Items activos: {Count}",
+            subscription?.MonitoredItemCount ?? 0);
+    }
+
     public async Task SubscribeAsync(
         IEnumerable<FieldTag> tags,
         Action<string, DataValue> onValue)
@@ -92,7 +129,6 @@ public sealed class OpcUaClient(OpcUaOptions options)
         session.AddSubscription(subscription);
         await subscription.CreateAsync();
 
-        // Si el servidor rechazo algun filtro, nos enteramos aca y no en silencio.
         foreach (var item in subscription.MonitoredItems)
         {
             if (ServiceResult.IsBad(item.Status.Error))
@@ -105,7 +141,14 @@ public sealed class OpcUaClient(OpcUaOptions options)
 
     public async Task DisconnectAsync()
     {
+        shuttingDown = true;
+        reconnectHandler?.Dispose();
+        reconnectHandler = null;
+
         if (session is not null)
+        {
+            session.KeepAlive -= OnKeepAlive;
             await session.CloseAsync();
+        }
     }
 }

@@ -24,8 +24,7 @@ var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
 builder.Services.AddSerilog();
 builder.Services.Configure<DatabaseOptions>(builder.Configuration.GetSection("Database"));
 builder.Services.Configure<OpcUaOptions>(builder.Configuration.GetSection("OpcUa"));
-Log.Information("DIAG - config cruda OpcUa:DeadbandPercent = {Raw}",
-    builder.Configuration["OpcUa:DeadbandPercent"] ?? "(nada)");
+
 
 var host = builder.Build();
 var db = host.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value;
