@@ -33,26 +33,29 @@ try
     var version = await conn.QuerySingleAsync<string>(
         "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'");
 
+    Log.Information("Conectado a {Db}@{Host}:{Port} - TimescaleDB {Version}",
+        db.Database, db.Host, db.Port, version);
+
     var fieldTags = FieldTagCatalog.Build(new Oilfield());
     var tagRepo = new TagRepository(db.ConnectionString);
     var tagIds = await tagRepo.SyncAsync(fieldTags);
     Log.Information("Catalogo sincronizado: {Count} tags en la base", tagIds.Count);
 
-    var opcOptions = new OpcUaOptions();
-    var opcClient = new OpcUaClient(opcOptions);
+    var opcClient = new OpcUaClient(new OpcUaOptions());
     await opcClient.ConnectAsync();
 
-    var value = opcClient.ReadTag("POZO-A/THP");
-    Log.Information("POZO-A/THP = {Value} ({Status})", value.Value, value.StatusCode);
+    await opcClient.SubscribeAsync(
+        fieldTags.Select(t => t.Name),
+        (name, dv) => Log.Information("{Tag} = {Value} ({Status})", name, dv.Value, dv.StatusCode));
+
+    Log.Information("Recibiendo datos. Enter para detener.");
+    Console.ReadLine();
 
     await opcClient.DisconnectAsync();
-
-    Log.Information("Conectado a {Db}@{Host}:{Port} - TimescaleDB {Version}",
-        db.Database, db.Host, db.Port, version);
 }
 catch (Exception ex)
 {
-    Log.Error(ex, "No se pudo conectar a la base.");
+    Log.Error(ex, "Fallo la ingesta.");
     return 1;
 }
 finally

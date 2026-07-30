@@ -5,10 +5,11 @@ using Serilog;
 
 namespace Ingestion;
 
-/// Cliente OPC UA: se conecta al servidor del yacimiento y lee sus tags.
+/// Cliente OPC UA: se conecta al servidor del yacimiento y se suscribe a sus tags.
 public sealed class OpcUaClient(OpcUaOptions options)
 {
     private ISession? session;
+    private Subscription? subscription;
 
     /// Arma la identidad de la aplicacion y abre la sesion.
     public async Task ConnectAsync()
@@ -19,7 +20,6 @@ public sealed class OpcUaClient(OpcUaOptions options)
             ApplicationType = ApplicationType.Client
         };
 
-        // Configuracion minima: sin seguridad (Fase 6), certificado autofirmado propio.
         var config = await app.Build(
                 applicationUri: "urn:localhost:OilfieldIngestion",
                 productUri: "urn:oilfield-scada:ingestion")
@@ -29,7 +29,6 @@ public sealed class OpcUaClient(OpcUaOptions options)
 
         await app.CheckApplicationInstanceCertificatesAsync(silent: true);
 
-        // El servidor puede anunciarse con el nombre de la maquina en vez de localhost.
         var endpoint = await CoreClientUtils.SelectEndpointAsync(
             config, options.EndpointUrl, false, 15000, default);
 
@@ -43,11 +42,43 @@ public sealed class OpcUaClient(OpcUaOptions options)
         Log.Information("Sesion OPC UA abierta contra {Endpoint}", endpoint.EndpointUrl);
     }
 
-    /// Lee un solo valor, para verificar que la conexion sirve.
-    public DataValue ReadTag(string nodeId)
+    /// Se suscribe a los tags indicados. El callback se dispara con cada valor nuevo.
+    public async Task SubscribeAsync(
+        IEnumerable<string> tagNames,
+        Action<string, DataValue> onValue)
     {
-        var id = new NodeId(nodeId, 2); // namespace 2 = http://oilfield-scada/
-        return session!.ReadValue(id);
+        subscription = new Subscription(session!.DefaultSubscription)
+        {
+            PublishingInterval = options.PublishingIntervalMs,
+            DisplayName = "OilfieldTags"
+        };
+
+        foreach (var name in tagNames)
+        {
+            var item = new MonitoredItem(subscription.DefaultItem)
+            {
+                DisplayName = name,
+                StartNodeId = new NodeId(name, 2), // namespace 2 = http://oilfield-scada/
+                AttributeId = Attributes.Value,
+                SamplingInterval = options.PublishingIntervalMs,
+                QueueSize = 1,
+                DiscardOldest = true
+            };
+
+            item.Notification += (mi, _) =>
+            {
+                foreach (var value in mi.DequeueValues())
+                    onValue(mi.DisplayName, value);
+            };
+
+            subscription.AddItem(item);
+        }
+
+        session.AddSubscription(subscription);
+        await subscription.CreateAsync();
+
+        Log.Information("Suscripcion creada: {Count} items cada {Interval} ms",
+            subscription.MonitoredItemCount, subscription.PublishingInterval);
     }
 
     public async Task DisconnectAsync()
