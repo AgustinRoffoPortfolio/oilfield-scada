@@ -15,9 +15,11 @@ Log.Logger = new LoggerConfiguration()
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddSerilog();
 builder.Services.Configure<DatabaseOptions>(builder.Configuration.GetSection("Database"));
+builder.Services.Configure<OpcUaOptions>(builder.Configuration.GetSection("OpcUa"));
 
 var host = builder.Build();
 var db = host.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value;
+var opc = host.Services.GetRequiredService<IOptions<OpcUaOptions>>().Value;
 
 if (string.IsNullOrWhiteSpace(db.Password))
 {
@@ -41,11 +43,11 @@ try
     var tagIds = await tagRepo.SyncAsync(fieldTags);
     Log.Information("Catalogo sincronizado: {Count} tags en la base", tagIds.Count);
 
-    var opcClient = new OpcUaClient(new OpcUaOptions());
+    var opcClient = new OpcUaClient(opc);
     await opcClient.ConnectAsync();
 
     await opcClient.SubscribeAsync(
-        fieldTags.Select(t => t.Name),
+        fieldTags,
         (name, dv) => Log.Information("{Tag} = {Value} ({Status})", name, dv.Value, dv.StatusCode));
 
     Log.Information("Recibiendo datos. Enter para detener.");

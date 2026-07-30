@@ -2,6 +2,7 @@ using Opc.Ua;
 using Opc.Ua.Client;
 using Opc.Ua.Configuration;
 using Serilog;
+using Shared;
 
 namespace Ingestion;
 
@@ -43,8 +44,9 @@ public sealed class OpcUaClient(OpcUaOptions options)
     }
 
     /// Se suscribe a los tags indicados. El callback se dispara con cada valor nuevo.
+    /// Se suscribe a los tags indicados. El callback se dispara con cada valor nuevo.
     public async Task SubscribeAsync(
-        IEnumerable<string> tagNames,
+        IEnumerable<FieldTag> tags,
         Action<string, DataValue> onValue)
     {
         subscription = new Subscription(session!.DefaultSubscription)
@@ -53,17 +55,30 @@ public sealed class OpcUaClient(OpcUaOptions options)
             DisplayName = "OilfieldTags"
         };
 
-        foreach (var name in tagNames)
+        foreach (var tag in tags)
         {
             var item = new MonitoredItem(subscription.DefaultItem)
             {
-                DisplayName = name,
-                StartNodeId = new NodeId(name, 2), // namespace 2 = http://oilfield-scada/
+                DisplayName = tag.Name,
+                StartNodeId = new NodeId(tag.Name, 2), // namespace 2 = http://oilfield-scada/
                 AttributeId = Attributes.Value,
                 SamplingInterval = options.PublishingIntervalMs,
                 QueueSize = 1,
                 DiscardOldest = true
             };
+
+            // Deadband porcentual solo para analogicos: los discretos no tienen
+            // rango de ingenieria y queremos cada cambio de estado.
+            bool isAnalog = tag.Unit is not null;
+            if (isAnalog && options.DeadbandPercent > 0)
+            {
+                item.Filter = new DataChangeFilter
+                {
+                    Trigger = DataChangeTrigger.StatusValue,
+                    DeadbandType = (uint)DeadbandType.Percent,
+                    DeadbandValue = options.DeadbandPercent
+                };
+            }
 
             item.Notification += (mi, _) =>
             {
@@ -77,8 +92,15 @@ public sealed class OpcUaClient(OpcUaOptions options)
         session.AddSubscription(subscription);
         await subscription.CreateAsync();
 
-        Log.Information("Suscripcion creada: {Count} items cada {Interval} ms",
-            subscription.MonitoredItemCount, subscription.PublishingInterval);
+        // Si el servidor rechazo algun filtro, nos enteramos aca y no en silencio.
+        foreach (var item in subscription.MonitoredItems)
+        {
+            if (ServiceResult.IsBad(item.Status.Error))
+                Log.Warning("Item {Tag} con problema: {Error}", item.DisplayName, item.Status.Error);
+        }
+
+        Log.Information("Suscripcion creada: {Count} items cada {Interval} ms, deadband {Deadband}%",
+            subscription.MonitoredItemCount, subscription.PublishingInterval, options.DeadbandPercent);
     }
 
     public async Task DisconnectAsync()
