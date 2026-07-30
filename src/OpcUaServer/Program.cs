@@ -1,8 +1,8 @@
 ﻿using System.Net;
 using Opc.Ua;
 using Opc.Ua.Configuration;
-using Opc.Ua.Server;
 using OpcUaServer;
+using Shared;
 
 // Identidad de la aplicación ante la red OPC UA.
 var application = new ApplicationInstance
@@ -27,14 +27,21 @@ await application.Build(
 // Crea el certificado propio del servidor la primera vez que corre.
 await application.CheckApplicationInstanceCertificatesAsync(silent: true);
 
-// StandardServer: el servidor base del stack. Todavía no expone tags nuestros.
-var server = new OilfieldServer();
+// El yacimiento simulado: la misma clase que usa el proyecto Simulator.
+var oilfield = new Oilfield();
+var server = new OilfieldServer(oilfield);
 await application.StartAsync(server);
+
+// Cada segundo: avanzar la física y publicar los valores nuevos.
+using var timer = new Timer(_ =>
+{
+    oilfield.Step(1.0);
+    server.NodeManager?.UpdateValues();
+}, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
 
 Console.WriteLine("Servidor OPC UA escuchando en opc.tcp://localhost:4840/OilfieldScada");
 Console.WriteLine("Enter para detener.");
 Console.ReadLine();
 
 await application.StopAsync();
-
 Console.WriteLine("Servidor detenido.");

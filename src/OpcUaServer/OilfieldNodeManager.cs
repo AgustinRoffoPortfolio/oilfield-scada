@@ -1,20 +1,25 @@
 using Opc.Ua;
 using Opc.Ua.Server;
+using Shared;
 using Range = Opc.Ua.Range;
 
 namespace OpcUaServer;
 
-/// Construye y administra la rama "Oilfield" del espacio de direcciones.
+/// Construye la rama "Oilfield" y copia a los nodos los valores del simulador.
 public class OilfieldNodeManager : CustomNodeManager2
 {
-    // Acceso rápido a cada tag para escribirle valores en el paso siguiente.
-    // Clave: "Well-01/THP".
-    private readonly Dictionary<string, AnalogItemState> _analogTags = new();
-    private readonly Dictionary<string, MultiStateDiscreteState> _statusTags = new();
+    private readonly Oilfield _oilfield;
 
-    public OilfieldNodeManager(IServerInternal server, ApplicationConfiguration configuration)
+    // Cada nodo apareado con el sensor que lo alimenta. Se arma una vez,
+    // al construir el árbol, para no buscar por nombre en cada ciclo.
+    private readonly List<(AnalogItemState Node, Sensor Sensor)> _analogBindings = new();
+    private readonly List<(MultiStateDiscreteState Node, Well Well)> _statusBindings = new();
+
+    public OilfieldNodeManager(IServerInternal server, ApplicationConfiguration configuration,
+        Oilfield oilfield)
         : base(server, configuration, "http://oilfield-scada/")
     {
+        _oilfield = oilfield;
     }
 
     public override void CreateAddressSpace(IDictionary<NodeId, IList<IReference>> externalReferences)
@@ -39,14 +44,40 @@ public class OilfieldNodeManager : CustomNodeManager2
             LinkToParent(externalReferences, ObjectIds.ObjectsFolder,
                 root.NodeId, ReferenceTypeIds.Organizes);
 
-            // 3) Los tres pozos del yacimiento. Tienen que existir ANTES
+            // 3) Un nodo por cada pozo del simulador. Tienen que existir ANTES
             //    del AddPredefinedNode, que registra la rama completa de una vez.
-            foreach (string wellName in new[] { "Well-01", "Well-02", "Well-03" })
+            foreach (var well in _oilfield.Wells)
             {
-                CreateWell(root, wellName);
+                CreateWell(root, well);
             }
 
             AddPredefinedNode(SystemContext, root);
+        }
+    }
+
+    /// Copia los valores actuales del simulador a los nodos y avisa a los
+    /// clientes suscriptos. Se llama desde el timer del programa principal.
+    public void UpdateValues()
+    {
+        lock (Lock)
+        {
+            var now = DateTime.UtcNow;
+
+            foreach (var (node, sensor) in _analogBindings)
+            {
+                node.Value = sensor.Value;
+                node.Timestamp = now;
+                node.StatusCode = StatusCodes.Good;
+                node.ClearChangeMasks(SystemContext, false);
+            }
+
+            foreach (var (node, well) in _statusBindings)
+            {
+                node.Value = (uint)well.Status;
+                node.Timestamp = now;
+                node.StatusCode = StatusCodes.Good;
+                node.ClearChangeMasks(SystemContext, false);
+            }
         }
     }
 
@@ -78,14 +109,14 @@ public class OilfieldNodeManager : CustomNodeManager2
         return wellType;
     }
 
-    /// Crea un pozo como instancia de WellType, con todos sus tags.
-    private BaseObjectState CreateWell(NodeState parent, string wellName)
+    /// Crea un pozo como instancia de WellType y lo ata a sus sensores.
+    private BaseObjectState CreateWell(NodeState parent, Well well)
     {
-        var well = new BaseObjectState(parent)
+        var node = new BaseObjectState(parent)
         {
-            NodeId = new NodeId(wellName, NamespaceIndex),
-            BrowseName = new QualifiedName(wellName, NamespaceIndex),
-            DisplayName = wellName,
+            NodeId = new NodeId(well.Name, NamespaceIndex),
+            BrowseName = new QualifiedName(well.Name, NamespaceIndex),
+            DisplayName = well.Name,
             TypeDefinitionId = new NodeId("WellType", NamespaceIndex),
             ReferenceTypeId = ReferenceTypeIds.Organizes,
             EventNotifier = EventNotifiers.None
@@ -93,19 +124,33 @@ public class OilfieldNodeManager : CustomNodeManager2
 
         foreach (var tag in WellTagCatalog.Analog)
         {
-            string key = $"{wellName}/{tag.Name}";
-            var variable = CreateAnalogTag(well, key, tag);
-            well.AddChild(variable);
-            _analogTags[key] = variable;
+            var variable = CreateAnalogTag(node, $"{well.Name}/{tag.Name}", tag);
+            node.AddChild(variable);
+            _analogBindings.Add((variable, SensorFor(well, tag.Name)));
         }
 
-        var status = CreateStatusTag(well, $"{wellName}/Status");
-        well.AddChild(status);
-        _statusTags[wellName] = status;
+        var status = CreateStatusTag(node, $"{well.Name}/Status");
+        node.AddChild(status);
+        _statusBindings.Add((status, well));
 
-        parent.AddChild(well);
-        return well;
+        parent.AddChild(node);
+        return node;
     }
+
+    /// Traduce el nombre del tag al sensor correspondiente del modelo físico.
+    private static Sensor SensorFor(Well well, string tagName) => tagName switch
+    {
+        "THP" => well.WellheadPressure,
+        "CHP" => well.CasingPressure,
+        "T_head" => well.HeadTemperature,
+        "Q_oil" => well.OilRate,
+        "Q_water" => well.WaterRate,
+        "Q_gas" => well.GasRate,
+        "ESP_current" => well.EspCurrent,
+        "ESP_freq" => well.EspFrequency,
+        "ESP_vib" => well.EspVibration,
+        _ => throw new ArgumentException($"Tag sin sensor asociado: {tagName}")
+    };
 
     /// Crea una variable analógica con unidad de ingeniería y rango de escala.
     private AnalogItemState CreateAnalogTag(NodeState parent, string id, TagDefinition tag)
@@ -189,10 +234,11 @@ public class OilfieldNodeManager : CustomNodeManager2
             ReferenceTypeId = ReferenceTypeIds.HasProperty,
             DataType = DataTypeIds.LocalizedText,
             ValueRank = ValueRanks.OneDimension,
-            Value = new LocalizedText[]
-            {
-                new("RUNNING"), new("STOPPED"), new("FAULT")
-            }
+            // Las etiquetas salen del enum del simulador, en orden de valor.
+            // Así no pueden desincronizarse del modelo físico.
+            Value = Enum.GetNames<WellStatus>()
+                .Select(name => new LocalizedText(name.ToUpperInvariant()))
+                .ToArray()
         };
 
         return status;
