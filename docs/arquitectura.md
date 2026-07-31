@@ -640,5 +640,84 @@ El autoescalado vertical tiene un piso del 10 % del rango de ingenieria. Sin eso
 tag estable con deadband se dibuja como un terremoto: el grafico termina mostrando el
 deadband en lugar del proceso.
 
-Las tarjetas se derivan del campo `equipment` y se reparten por cantidad de variables,
-sin listas de equipos escritas a mano.
+Ningún componente del frontend tiene listas de equipos escritas a mano: los grupos se
+derivan del campo `equipment` que viene en los datos, y un equipo nuevo aparece solo.
+
+## Fase 4, paso 7 — Mímico, faceplates y condiciones anormales
+
+La pantalla principal es un **esquema de proceso** en SVG: los tres pozos con su
+cabezal y su ESP, las líneas convergiendo al colector, el separador y el ducto con sus
+transmisores. Las tarjetas por equipo que existían antes se eliminaron; su rol lo
+cumple ahora el faceplate.
+
+### Tres niveles de navegación
+
+| Nivel | Qué muestra | Responde |
+|---|---|---|
+| Mímico | El yacimiento completo | ¿Dónde está el problema? |
+| Faceplate | Un equipo, todas sus variables | ¿Qué le pasa a este equipo? |
+| Tendencia | Un tag, hasta 24 h | ¿Desde cuándo? |
+
+Es la jerarquía de un SCADA real, y el recorrido es un clic por nivel: se toca un
+equipo en el esquema y se abre su faceplate; se toca una variable adentro y va al
+gráfico grande.
+
+### Por qué faceplate flotante y no filtrar la pantalla
+
+La primera versión filtraba las tarjetas al equipo elegido. Se descartó por dos
+razones. La primera es que **el mímico no se tiene que mover nunca**: el operador
+memoriza dónde está cada equipo en la pantalla y lo ubica por reflejo; cualquier
+reacomodo destruye esa memoria espacial. La segunda es que el filtrado solo permite
+mirar un equipo por vez, mientras que dos faceplates abiertos dejan comparar POZO-A
+con POZO-C lado a lado.
+
+Cada faceplate incluye su propia mini-tendencia de 30 minutos, con el mismo motor
+Canvas del gráfico grande. No es adorno: la falla característica del ESP es la
+degradación gradual, y **es invisible en el valor instantáneo**. Una vibración de
+2,4 mm/s no dice nada; 2,4 subiendo desde 1,9 en veinte minutos dice que la bomba se
+está yendo. Esa falla solo existe en la tendencia.
+
+### Umbrales: configuración de planta, no de la pantalla
+
+Las condiciones anormales se evalúan contra cuatro columnas del catálogo de tags:
+`warn_low`, `warn_high`, `alarm_low`, `alarm_high`. Viven en la base porque los
+límites de alarma son configuración de planta: cambiarlos no debería requerir tocar
+el frontend, y el motor de alarmas de la Fase 5 lee exactamente los mismos valores.
+
+Un umbral en `NULL` significa "sin límite de ese lado". La vibración no tiene mínimo:
+cuanto menos, mejor.
+
+Cuatro columnas y no dos porque *prestá atención* y *actuá ahora* son cosas distintas.
+La vibración a 5,5 mm/s se está yendo; a 7,0 hay que parar la bomba.
+
+**Los límites no se ponen en el borde del rango nominal.** El rango de la tabla de
+dominio describe lo que el proceso hace, no dónde hay que avisar. POZO-C opera
+establemente en 146 m³/d contra un nominal de 120, así que su umbral quedó en 160: un
+aviso que suena durante la operación normal entrena al operador a ignorarlo, que es el
+modo de falla más común de los SCADA reales.
+
+### Uso del color
+
+Gris para todo lo normal. Ámbar para `warn`, magenta para `alarm`, violeta para dato
+inválido o comunicación caída. El magenta se eligió sobre el rojo porque se distingue
+bajo daltonismo, que es la recomendación de ISA-101.
+
+Un equipo se pinta con el peor estado de sus variables, y `Status = FAULT` lo manda
+directo a alarma. Si se corta la cadena de datos, los cinco equipos pasan a violeta
+juntos: no saber qué está pasando es peor que saber que algo está mal.
+
+### Estructura del frontend
+
+| Archivo | Responsabilidad |
+|---|---|
+| `index.html` | Geometría del mímico. Cada equipo lleva `data-equipment`; cada hueco de valor, `data-variable`. |
+| `mimic.js` | Escribe valores y estados sobre el esquema. No sabe nada de geometría: encuentra los nodos por atributo. |
+| `faceplate.js` | Ventanas flotantes: arrastre, apilado, cierre con `Escape`, mini-tendencia propia. |
+| `state.js` | Clasifica una lectura contra sus umbrales. Única definición de "esto está mal". |
+| `format.js` | Decimales según rango y texto de estado, compartidos por todos. |
+| `chart.js` | Motor de gráficos en Canvas 2D, reusado por el gráfico grande y por cada faceplate. |
+| `app.js` | Cablea las piezas: conexión SSE, selección del gráfico grande, apertura de faceplates. |
+
+El HTML define **dónde** va cada cosa y el JS **qué** dice. El mímico es un dibujo de
+ingeniería: la posición de cada equipo es una decisión de proceso, no algo que se
+derive de los datos.
