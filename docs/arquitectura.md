@@ -572,3 +572,31 @@ inferirlo del comportamiento.
 - **Warnings de API obsoleta** en el cliente OPC UA, de la misma familia que los del
   servidor: la versión 1.5.378 del stack migra a firmas que reciben un
   `ITelemetryContext`. Se resuelven junto con la seguridad, en la Fase 6.
+
+## Consulta de ultimos valores (Fase 4)
+
+El dashboard necesita el ultimo valor de los 35 tags en cada carga. Se probaron
+dos formas contra 6.048.823 filas sinteticas repartidas en 6 chunks:
+
+| Consulta | Tiempo | Bloques leidos |
+|---|---|---|
+| `LATERAL` + join a `tags` | 0,5 ms | 102 |
+| `DISTINCT ON` sin join | 11,7 ms | 935 |
+| `DISTINCT ON` + join a `tags` | 2.491 ms | 1.598.079 |
+
+Se eligio **LATERAL**. Recorre los 35 tags del catalogo y por cada uno pide su
+ultima medicion; el `ChunkAppend` de TimescaleDB va del chunk mas nuevo al mas
+viejo y encuentra el dato en el primero, dejando los otros cinco en
+`never executed`. El costo no crece con el historico acumulado.
+
+`DISTINCT ON` puede usar el nodo `SkipScan` de TimescaleDB, pero es fragil: al
+sumar el join con `tags` el planificador lo descarta sin aviso y pasa a leer las
+6 millones de filas para devolver 35. Ademas el SkipScan se ejecuta una vez por
+chunk, mientras que LATERAL frena en el primero.
+
+Limitacion conocida: LATERAL es rapido porque todos los tags reportan seguido.
+Un tag sin datos recientes obligaria a bajar chunk por chunk hasta encontrarlo.
+
+Reproducible con `sql/dev_benchmark_seed.sql` y `sql/dev_benchmark_explain.sql`.
+Los datos sinteticos se borran con
+`SELECT drop_chunks('measurements', older_than => INTERVAL '10 days');`.
