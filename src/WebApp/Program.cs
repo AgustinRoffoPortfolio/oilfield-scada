@@ -1,6 +1,7 @@
 using Npgsql;
 using Serilog;
 using Shared;
+using WebApp;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,6 +17,7 @@ var dbOptions = builder.Configuration.GetSection("Database").Get<DatabaseOptions
 // Una sola fabrica de conexiones para toda la app, con pool interno.
 var dataSource = new NpgsqlDataSourceBuilder(dbOptions.ConnectionString).Build();
 builder.Services.AddSingleton(dataSource);
+builder.Services.AddSingleton<ReadingRepository>();
 
 var app = builder.Build();
 
@@ -31,5 +33,9 @@ app.MapGet("/api/health", async (NpgsqlDataSource source) =>
     var ts = await cmd.ExecuteScalarAsync();
     return Results.Ok(new { database = "ok", serverTime = ts });
 });
+
+// Ultimo valor de los 35 tags, para pintar el dashboard al cargar la pagina.
+app.MapGet("/api/tags/latest", async (ReadingRepository repo, CancellationToken ct) =>
+    Results.Ok(await repo.GetLatestAsync(ct)));
 
 app.Run();
