@@ -214,7 +214,7 @@ main { padding: 0.75rem 1rem; }
 .mimic [data-equipment]:hover .eq-name { text-decoration: underline; }
 
 /* Faceplates: ventanas flotantes de detalle por equipo */
-.faceplate { position: fixed; max-height: 72vh; display: flex; flex-direction: column;
+.faceplate { position: fixed; max-height: 82vh; display: flex; flex-direction: column;
              background: var(--panel, #cfcfc9);
              border: 1px solid var(--eq-line, #56564f);
              box-shadow: 0 6px 24px rgba(0,0,0,.28); }
@@ -230,3 +230,14 @@ main { padding: 0.75rem 1rem; }
             line-height: 1; padding: 0 .2rem; cursor: pointer; }
 .fp-close:hover { color: var(--alarm, #b3006b); }
 .fp-body { padding: .7rem; overflow-y: auto; display: grid; gap: .55rem; }
+
+/* Mini-tendencia dentro del faceplate */
+.fp-trend { padding: .5rem .7rem .7rem;
+            border-top: 1px solid var(--eq-line, #56564f); }
+.fp-trend-title { font-size: .75rem; letter-spacing: .04em;
+                  color: var(--txt-dim, #6a6a62); margin-bottom: .35rem; }
+.fp-trend canvas { width: 100%; height: 145px; display: block; }
+
+/* Las tarjetas quedan ocultas: su rol lo cumple el faceplate.
+   El codigo sigue vivo porque de ahi sale la deteccion de dato viejo (paso 7.4). */
+#main-grid, #compact-grid { display: none; }

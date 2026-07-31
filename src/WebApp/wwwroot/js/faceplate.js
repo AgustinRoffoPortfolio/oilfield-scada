@@ -3,10 +3,14 @@
 // reflejo. El detalle se abre encima, no reacomoda la pantalla.
 
 import { formatValue, statusText, NORMAL_STATUS } from "./format.js";
+import { createChart } from "./chart.js";
 
-const WIDTH = 380;
-const OFFSET = 28;        // corrimiento entre ventanas para que no se tapen
-const open = new Map();   // equipment -> { win, rows, statusEl }
+const WIDTH = 494;          // 380 + 30%
+const OFFSET = 34;         // corrimiento entre ventanas para que no se tapen
+const TREND_MIN = 30;       // ventana del mini-grafico, en minutos
+const REFRESH_MS = 10000;
+
+const open = new Map();     // equipment -> estado de la ventana
 let zTop = 100;
 let opened = 0;
 
@@ -14,7 +18,7 @@ const el = (tag, cls) => Object.assign(document.createElement(tag), { className:
 
 const bringToFront = (win) => { win.style.zIndex = ++zTop; };
 
-function buildRow(reading, onSelect) {
+function buildRow(reading, onClick) {
   const wrap = el("div", "tag");
   const line = el("div", "tag-line");
   const label = el("span", "tag-label");
@@ -29,7 +33,7 @@ function buildRow(reading, onSelect) {
   bar.append(fill);
   wrap.append(line, bar);
 
-  if (onSelect) wrap.addEventListener("click", () => onSelect(reading));
+  wrap.addEventListener("click", () => onClick(reading));
   return { wrap, value, fill };
 }
 
@@ -56,6 +60,43 @@ function makeDraggable(win, handle) {
     e.preventDefault();
   });
 }
+
+// --- Mini-tendencia ---
+
+async function loadTrend(fp) {
+  if (!fp.selected) return;
+  // encodeURIComponent es obligatorio: el nombre trae "/" (POZO-A/THP).
+  const url = `/api/history?tag=${encodeURIComponent(fp.selected.name)}` +
+              `&minutes=${TREND_MIN}`;
+  try {
+    const res = await fetch(url);
+    fp.trendData = await res.json();
+    drawTrend(fp);
+  } catch {
+    // Una ventana no se rompe porque una consulta fallo: el proximo ciclo reintenta.
+  }
+}
+
+function drawTrend(fp) {
+  if (!fp.selected) return;
+  fp.chart.draw(fp.trendData, {
+    min: fp.selected.euMin ?? 0,
+    max: fp.selected.euMax ?? 100,
+  });
+}
+
+function selectVar(fp, reading) {
+  if (fp.selected) fp.rows.get(fp.selected.name)?.wrap.classList.remove("selected");
+  fp.selected = reading;
+  fp.rows.get(reading.name)?.wrap.classList.add("selected");
+  fp.trendTitle.textContent = reading.unit
+    ? `${reading.variable} [${reading.unit}] · ${TREND_MIN}m`
+    : `${reading.variable} · ${TREND_MIN}m`;
+  fp.trendData = [];
+  loadTrend(fp);
+}
+
+// --- API del modulo ---
 
 export function closeFaceplate(equipment) {
   const fp = open.get(equipment);
@@ -85,23 +126,38 @@ export function openFaceplate(equipment, readings, onSelect) {
   head.append(title, status, close);
 
   const body = el("div", "fp-body");
-  const rows = new Map();
-  for (const r of readings) {
-    if (r.variable === "Status") continue;
-    const row = buildRow(r, onSelect);
-    rows.set(r.name, row);
+  const trendBox = el("div", "fp-trend");
+  const trendTitle = el("div", "fp-trend-title");
+  const canvas = document.createElement("canvas");
+  trendBox.append(trendTitle, canvas);
+
+  const fp = {
+    win, rows: new Map(), statusEl: status, trendTitle,
+    selected: null, trendData: [], chart: null,
+  };
+
+  const vars = readings.filter((r) => r.variable !== "Status");
+  for (const r of vars) {
+    const row = buildRow(r, (reading) => {
+      selectVar(fp, reading);
+      onSelect?.(reading);        // el grafico grande de abajo sigue al faceplate
+    });
+    fp.rows.set(r.name, row);
     body.append(row.wrap);
   }
 
-  win.append(head, body);
-  document.body.append(win);
+  win.append(head, body, trendBox);
+  document.body.append(win);      // el canvas debe estar en el DOM antes de medirlo
   makeDraggable(win, head);
 
   close.addEventListener("click", () => closeFaceplate(equipment));
   win.addEventListener("mousedown", () => bringToFront(win));
 
-  open.set(equipment, { win, rows, statusEl: status });
-  updateFaceplates(readings);   // pinta valores sin esperar al proximo snapshot
+  fp.chart = createChart(canvas);
+  open.set(equipment, fp);
+
+  updateFaceplates(readings);     // pinta valores sin esperar al proximo snapshot
+  if (vars.length) selectVar(fp, vars[0]);
 }
 
 export function updateFaceplates(readings) {
@@ -128,6 +184,11 @@ export function updateFaceplates(readings) {
     row.wrap.classList.toggle("bad", r.quality !== 0);
   }
 }
+
+// Un solo temporizador para todas las ventanas, no uno por ventana: asi no quedan
+// intervalos huerfanos cuando se cierra una.
+setInterval(() => { for (const fp of open.values()) loadTrend(fp); }, REFRESH_MS);
+window.addEventListener("resize", () => { for (const fp of open.values()) drawTrend(fp); });
 
 // Escape cierra la ventana de mas arriba, no todas: cerrar de a una es lo
 // esperable cuando hay varias abiertas para comparar.
