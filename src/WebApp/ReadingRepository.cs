@@ -15,6 +15,8 @@ public sealed class ReadingRepository(NpgsqlDataSource dataSource)
     private const string LatestSql = """
         SELECT t.name, t.equipment, t.variable, t.unit,
                t.eu_min AS EuMin, t.eu_max AS EuMax,
+               t.warn_low AS WarnLow, t.warn_high AS WarnHigh,
+               t.alarm_low AS AlarmLow, t.alarm_high AS AlarmHigh,
                m.value, m.quality, m.ts
         FROM tags t
         LEFT JOIN LATERAL (

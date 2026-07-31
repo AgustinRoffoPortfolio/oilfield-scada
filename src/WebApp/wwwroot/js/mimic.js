@@ -3,16 +3,18 @@
 // El HTML define DÓNDE va cada cosa; este módulo solo define QUÉ dice.
 
 import { formatValue } from "./format.js";
+import { readingState, equipmentState, CLASS, OK } from "./state.js";
 
 const mimicRoot = document.getElementById("mimicView");
+const STALE_MS = 10000;
 
 // Borde interno del recipiente separador, en coordenadas del viewBox del SVG.
 const SEP_TOP = 142;
 const SEP_BOTTOM = 328;
 const SEP_HEIGHT = SEP_BOTTOM - SEP_TOP;
 
-// Cache de nodos: sin esto serían 35 querySelector por segundo, uno por tag.
-const slots = new Map();
+const slots = new Map(); // cache de nodos: sin esto, 35 querySelector por segundo
+const groups = new Map();
 
 function slotFor(equipment, variable) {
   const key = `${equipment}/${variable}`;
@@ -20,11 +22,28 @@ function slotFor(equipment, variable) {
     slots.set(
       key,
       mimicRoot.querySelector(
-        `[data-equipment="${equipment}"] [data-variable="${variable}"]`
-      )
+        `[data-equipment="${equipment}"] [data-variable="${variable}"]`,
+      ),
     );
   }
   return slots.get(key);
+}
+
+function groupFor(equipment) {
+  if (!groups.has(equipment)) {
+    groups.set(
+      equipment,
+      mimicRoot.querySelector(`[data-equipment="${equipment}"]`),
+    );
+  }
+  return groups.get(equipment);
+}
+
+// Reemplaza la clase de estado sin tocar las demas (dimmed, etc).
+function setState(node, state) {
+  if (!node) return;
+  node.classList.remove("warn", "alarm", "bad");
+  if (state !== OK) node.classList.add(CLASS[state]);
 }
 
 function updateSeparatorLevel(percent) {
@@ -42,22 +61,35 @@ function updateSeparatorLevel(percent) {
   line.setAttribute("y2", top);
 }
 
-/**
- * Actualiza el mímico con un snapshot completo de lecturas.
- * Las variables que no tienen lugar en el esquema se ignoran sin ruido.
- */
+/** Actualiza valores y estados. Las variables sin lugar en el esquema se ignoran. */
 export function updateMimic(readings) {
   if (!mimicRoot || !Array.isArray(readings)) return;
 
+  // Con deadband, un tag que no cambia deja de reportar y su timestamp envejece sin
+  // que el dato sea malo. Lo que indica corte de la cadena es que NINGUNO reporte.
+  const newest = Math.max(
+    ...readings.map((r) => (r.ts ? new Date(r.ts).getTime() : 0)),
+  );
+  const stale = Date.now() - newest > STALE_MS;
+
+  const byEquipment = new Map();
+
   for (const r of readings) {
+    if (!byEquipment.has(r.equipment)) byEquipment.set(r.equipment, []);
+    byEquipment.get(r.equipment).push(r);
+
     const slot = slotFor(r.equipment, r.variable);
     if (!slot) continue;
 
     slot.textContent = formatValue(r.value, r.euMax);
+    setState(slot, readingState(r));
 
-    if (r.variable === "Sep_level" && r.value != null) {
+    if (r.variable === "Sep_level" && r.value != null)
       updateSeparatorLevel(r.value);
-    }
+  }
+
+  for (const [equipment, rs] of byEquipment) {
+    setState(groupFor(equipment), equipmentState(rs, stale));
   }
 }
 
