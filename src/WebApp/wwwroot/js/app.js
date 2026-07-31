@@ -1,4 +1,5 @@
 import { connect } from "./stream.js";
+import { createChart } from "./chart.js";
 
 const STATUS = ["STOPPED", "RUNNING", "FAULT"];
 const NORMAL_STATUS = "RUNNING";
@@ -116,3 +117,19 @@ connect({
     statusEl.classList.toggle("lost", state !== "online");
   },
 });
+
+// Andamio del paso 5: un solo trend fijo para verificar el motor de graficos.
+const trend = createChart(document.getElementById("trend-canvas"));
+let trendData = [];
+
+const TREND_RANGE = { min: 0, max: 60 };   // rango de ingenieria de POZO-A/THP
+
+async function loadTrend() {
+  const res = await fetch("/api/history?tag=POZO-A/THP&minutes=30");
+  trendData = await res.json();
+  trend.draw(trendData, TREND_RANGE);
+}
+
+loadTrend();
+setInterval(loadTrend, 10000);
+window.addEventListener("resize", () => trend.draw(trendData, TREND_RANGE));
