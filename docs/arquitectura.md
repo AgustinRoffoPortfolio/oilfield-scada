@@ -600,3 +600,15 @@ Un tag sin datos recientes obligaria a bajar chunk por chunk hasta encontrarlo.
 Reproducible con `sql/dev_benchmark_seed.sql` y `sql/dev_benchmark_explain.sql`.
 Los datos sinteticos se borran con
 `SELECT drop_chunks('measurements', older_than => INTERVAL '10 days');`.
+
+## Criterio visual: ISA-101 (Fase 4)
+
+El dashboard sigue ISA-101 / High Performance HMI en vez de un tema oscuro
+convencional. Fondo gris de baja saturacion, valores en escala de grises, y el color
+reservado para condiciones anormales: una pantalla sin color significa planta normal.
+Cada valor lleva una barra que muestra su posicion dentro del rango de ingenieria
+(`eu_min`/`eu_max` del catalogo), porque la posicion se lee mas rapido que el digito.
+
+La vejez del dato se evalua **sobre el conjunto de tags, no tag por tag**. Con deadband
+activo un tag que no cambia deja de reportar y su timestamp envejece sin que el dato
+sea invalido; lo que indica corte de la cadena es que *ninguno* de los 35 reporte.
