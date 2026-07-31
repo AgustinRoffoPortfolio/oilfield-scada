@@ -2,9 +2,6 @@ import { connect } from "./stream.js";
 import { createChart } from "./chart.js";
 import { updateMimic, onEquipmentClick } from "./mimic.js";
 import { openFaceplate, updateFaceplates } from "./faceplate.js";
-import { statusText, formatValue, NORMAL_STATUS } from "./format.js";
-
-const STALE_MS = 10000;
 
 // Orden de proceso para las variables conocidas. Una variable que no este en la
 // lista va al final: un equipo nuevo aparece igual, sin tocar este archivo.
@@ -12,7 +9,6 @@ const VAR_ORDER = ["THP", "CHP", "T_head", "Q_oil", "Q_water", "Q_gas",
                    "ESP_freq", "ESP_current", "ESP_vib",
                    "Sep_P", "Sep_level", "Pipe_P_in", "Pipe_P_out", "Pipe_Q"];
 
-const BIG_CARD_VARS = 6;              // a partir de aca, tarjeta grande
 const WINDOWS = [30, 120, 480, 1440]; // minutos ofrecidos en el selector
 
 const varRank = (v) => {
@@ -23,116 +19,23 @@ const varRank = (v) => {
 const winLabel = (m) => (m < 60 ? `${m}m` : `${m / 60}h`);
 const el = (tag, cls) => Object.assign(document.createElement(tag), { className: cls });
 
-const nodes = new Map();   // nombre de tag -> elementos a actualizar
-let built = false;
-let selected = null;       // reading del tag mostrado en el grafico
+let started = false;
+let selected = null;       // reading del tag mostrado en el grafico grande
 let windowMin = 30;
 let latest = [];           // ultimo snapshot, para armar faceplates al vuelo
 
-function buildTag(reading) {
-  const wrap = el("div", "tag");
-  const line = el("div", "tag-line");
-  const label = el("span", "tag-label");
-  label.textContent = reading.variable;
-  const value = el("span", "tag-value");
-  const unit = el("span", "tag-unit");
-  unit.textContent = reading.unit ?? "";
-  line.append(label, value, unit);
-
-  const bar = el("div", "tag-bar");
-  const fill = el("div", "tag-fill");
-  bar.append(fill);
-  wrap.append(line, bar);
-
-  wrap.addEventListener("click", () => select(reading));
-
-  nodes.set(reading.name, { wrap, value, fill });
-  return wrap;
-}
-
-function buildCard(equipment, vars, hasStatus) {
-  const card = el("article", "card");
-  card.dataset.equipment = equipment;
-
-  const head = el("div", "card-head");
-  const t = el("span", "card-title");
-  t.textContent = equipment;
-  const status = el("span", "card-status");
-  head.append(t, status);
-
-  const body = el("div", "card-body");
-  for (const r of vars) body.append(buildTag(r));
-
-  card.append(head, body);
-  if (hasStatus) nodes.set(`${equipment}/Status`, { statusEl: status });
-  return card;
-}
-
-function build(data) {
-  const main = document.getElementById("main-grid");
-  const compact = document.getElementById("compact-grid");
-
-  // Los grupos salen del campo equipment, no de una lista escrita a mano.
-  for (const eq of [...new Set(data.map((r) => r.equipment))].sort()) {
-    const readings = data.filter((r) => r.equipment === eq);
-    const vars = readings
-      .filter((r) => r.variable !== "Status")
-      .sort((a, b) => varRank(a.variable) - varRank(b.variable));
-    const hasStatus = readings.some((r) => r.variable === "Status");
-    const target = vars.length >= BIG_CARD_VARS ? main : compact;
-    target.append(buildCard(eq, vars, hasStatus));
-  }
-
-  built = true;
-  const first = data.find((r) => r.variable !== "Status");
-  if (first) select(first);
-}
-
-function update(data) {
-  const now = Date.now();
-  // Con deadband, un tag que no cambia no reporta: su timestamp envejece sin que el
-  // dato sea invalido. Por eso la vejez se evalua sobre el conjunto, no tag por tag.
-  const newest = Math.max(...data.map((r) => (r.ts ? new Date(r.ts).getTime() : 0)));
-  const stale = now - newest > STALE_MS;
-
-  for (const r of data) {
-    if (r.variable === "Status") {
-      const node = nodes.get(r.name);
-      if (!node?.statusEl) continue;
-      const text = statusText(r.value);
-      node.statusEl.textContent = text;
-      node.statusEl.classList.toggle("abnormal", text !== NORMAL_STATUS);
-      continue;
-    }
-
-    const node = nodes.get(r.name);
-    if (!node) continue;
-
-    node.value.textContent = formatValue(r.value, r.euMax);
-
-    // Posicion dentro del rango de ingenieria, acotada a 0..100.
-    const min = r.euMin ?? 0, max = r.euMax ?? 100;
-    const pct = r.value == null ? 0 : ((r.value - min) / (max - min)) * 100;
-    node.fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
-
-    node.wrap.classList.toggle("bad", r.quality !== 0);
-    node.wrap.classList.toggle("stale", stale && r.quality === 0);
-  }
-}
-
-// --- Grafico de tendencia ---
+// --- Grafico de tendencia (nivel 3: investigacion) ---
 
 const trend = createChart(document.getElementById("trend-canvas"));
 const trendTitle = document.getElementById("trend-title");
 let trendData = [];
 
 function select(reading) {
-  if (selected) nodes.get(selected.name)?.wrap.classList.remove("selected");
   selected = reading;
-  nodes.get(reading.name)?.wrap.classList.add("selected");
   trendTitle.textContent = reading.unit
     ? `${reading.name} [${reading.unit}]`
     : reading.name;
+  trendData = [];
   loadTrend();
 }
 
@@ -140,9 +43,13 @@ async function loadTrend() {
   if (!selected) return;
   // encodeURIComponent es obligatorio: el nombre trae "/" (POZO-A/THP).
   const url = `/api/history?tag=${encodeURIComponent(selected.name)}&minutes=${windowMin}`;
-  const res = await fetch(url);
-  trendData = await res.json();
-  redraw();
+  try {
+    const res = await fetch(url);
+    trendData = await res.json();
+    redraw();
+  } catch {
+    // El dashboard no se cae porque una consulta fallo: el proximo ciclo reintenta.
+  }
 }
 
 function redraw() {
@@ -181,10 +88,14 @@ const statusEl = document.getElementById("conn-status");
 connect({
   onData: (data) => {
     latest = data;
-    if (!built) build(data);
-    update(data);
     updateMimic(data);
     updateFaceplates(data);
+
+    if (!started) {
+      started = true;
+      const first = data.find((r) => r.variable !== "Status");
+      if (first) select(first);
+    }
   },
   onStatus: (state) => {
     statusEl.textContent = state === "online" ? "en linea" : "sin conexion";

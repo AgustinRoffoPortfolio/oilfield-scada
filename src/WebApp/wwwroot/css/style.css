@@ -238,6 +238,20 @@ main { padding: 0.75rem 1rem; }
                   color: var(--txt-dim, #6a6a62); margin-bottom: .35rem; }
 .fp-trend canvas { width: 100%; height: 145px; display: block; }
 
-/* Las tarjetas quedan ocultas: su rol lo cumple el faceplate.
-   El codigo sigue vivo porque de ahi sale la deteccion de dato viejo (paso 7.4). */
-#main-grid, #compact-grid { display: none; }
+/* Condiciones anormales. El color aparece SOLO aca: pantalla gris = planta normal. */
+:root {
+  --warn:  #b58900;   /* ambar */
+  --alarm: #b3006b;   /* magenta, no rojo: se distingue con daltonismo */
+  --bad:   #6c4bb6;   /* violeta: sin dato */
+}
+
+.mimic .v.warn  { fill: var(--warn);  font-weight: 600; }
+.mimic .v.alarm { fill: var(--alarm); font-weight: 700; }
+.mimic .v.bad   { fill: var(--bad); }
+
+.mimic [data-equipment].warn  .eq { stroke: var(--warn);  stroke-width: 2.5; }
+.mimic [data-equipment].alarm .eq { stroke: var(--alarm); stroke-width: 3; }
+.mimic [data-equipment].bad   .eq { stroke: var(--bad);   stroke-width: 2.5; }
+
+.mimic [data-equipment].alarm .eq-name { fill: var(--alarm); font-weight: 700; }
+.mimic [data-equipment].bad   .eq-name { fill: var(--bad); }
