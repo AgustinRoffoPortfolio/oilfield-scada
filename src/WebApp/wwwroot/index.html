@@ -8,11 +8,13 @@
 </head>
 <body>
   <header>
-    <h1>Oilfield SCADA</h1>
-    <span id="conn-status" class="offline">sin datos</span>
+    <h1>Yacimiento — Vista general</h1>
+    <span id="conn-status">conectando</span>
   </header>
   <main>
-    <p>Servidor web en línea.</p>
+    <section id="wells" class="grid grid-wells"></section>
+    <section id="plant" class="grid grid-plant"></section>
   </main>
+  <script type="module" src="/js/app.js"></script>
 </body>
 </html>

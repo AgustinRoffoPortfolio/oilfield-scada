@@ -1,11 +1,23 @@
+/* Paleta ISA-101: gris de baja saturacion, color solo para anormalidad. */
 :root {
-  --bg: #0f1419;
-  --panel: #1a2029;
-  --border: #2a3441;
-  --text: #d4dae0;
-  --text-dim: #7d8b99;
-  --ok: #3fb950;
-  --alarm: #f85149;
+  --bg: #b0b0b0;            /* campo de la pantalla */
+  --panel: #c4c4c4;         /* fondo de tarjetas */
+  --panel-header: #a8a8a8;
+  --border: #8a8a8a;
+  --border-strong: #6e6e6e;
+
+  --text: #1c1c1c;          /* valores y titulos en normal */
+  --text-dim: #565656;      /* etiquetas y unidades */
+
+  --track: #9a9a9a;         /* fondo de la barra de rango */
+  --fill: #4a4a4a;          /* relleno de la barra en normal */
+
+  /* Color: SOLO para condicion anormal. */
+  --alarm-hi: #c62828;      /* prioridad alta */
+  --alarm-lo: #d68910;      /* prioridad media / advertencia */
+  --stale: #7b1fa2;         /* dato viejo o calidad mala */
+
+  --mono: "Consolas", "Cascadia Mono", monospace;
 }
 
 * { box-sizing: border-box; }
@@ -15,24 +27,119 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
 }
 
 header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1.25rem;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 1rem;
+  background: var(--panel-header);
+  border-bottom: 1px solid var(--border-strong);
 }
 
-h1 { font-size: 1.1rem; font-weight: 600; margin: 0; letter-spacing: 0.04em; }
+h1 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 
+/* En normal es gris; solo se pinta cuando se pierde la conexion. */
 #conn-status {
-  font-size: 0.8rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
-main { padding: 1.25rem; }
+#conn-status.lost {
+  color: var(--alarm-hi);
+  font-weight: 700;
+}
+
+main { padding: 0.75rem 1rem; }
+
+.grid { display: grid; gap: 0.75rem; margin-bottom: 0.75rem; }
+.grid-wells { grid-template-columns: repeat(3, 1fr); }
+.grid-plant { grid-template-columns: repeat(2, 1fr); }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0.35rem 0.6rem;
+  background: var(--panel-header);
+  border-bottom: 1px solid var(--border);
+}
+
+.card-title {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-size: 0.85rem;
+}
+
+.card-status {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
+/* RUNNING no lleva color: es la condicion normal. */
+.card-status.abnormal { color: var(--alarm-hi); font-weight: 700; }
+
+.card-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.1rem 0.9rem;
+  padding: 0.5rem 0.6rem 0.6rem;
+}
+
+.grid-plant .card-body { grid-template-columns: repeat(3, 1fr); }
+
+.tag { padding: 0.2rem 0; }
+
+.tag-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.tag-label {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+.tag-value {
+  font-family: var(--mono);
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-unit { font-size: 0.68rem; color: var(--text-dim); }
+
+/* Indicador analogico: la posicion dentro del rango de ingenieria. */
+.tag-bar {
+  height: 4px;
+  background: var(--track);
+  margin-top: 0.2rem;
+  border: 1px solid var(--border);
+}
+
+.tag-fill { height: 100%; background: var(--fill); width: 0; }
+
+/* Condiciones anormales: unico lugar donde entra el color. */
+.tag.bad .tag-value { color: var(--stale); font-weight: 700; }
+.tag.bad .tag-fill { background: var(--stale); }
+.tag.stale .tag-value { color: var(--stale); }
+.tag.stale .tag-fill { background: var(--stale); }
