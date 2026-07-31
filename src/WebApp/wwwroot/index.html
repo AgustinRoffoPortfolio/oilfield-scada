@@ -12,12 +12,12 @@
     <span id="conn-status">conectando</span>
   </header>
   <main>
-    <section id="wells" class="grid grid-wells"></section>
-    <section id="plant" class="grid grid-plant"></section>
+    <section id="main-grid" class="grid grid-main"></section>
+    <section id="compact-grid" class="grid grid-compact"></section>
     <section id="trend" class="card">
       <div class="card-head">
-        <span class="card-title">POZO-A / THP</span>
-        <span class="card-status">30 min</span>
+        <span class="card-title" id="trend-title">—</span>
+        <span id="trend-windows"></span>
       </div>
       <div class="chart-body">
         <canvas id="trend-canvas"></canvas>

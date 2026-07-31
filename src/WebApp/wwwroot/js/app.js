@@ -3,23 +3,32 @@ import { createChart } from "./chart.js";
 
 const STATUS = ["STOPPED", "RUNNING", "FAULT"];
 const NORMAL_STATUS = "RUNNING";
-const STALE_MS = 10000;   // sin dato nuevo del sensor por mas de esto = dato viejo
+const STALE_MS = 10000;
 
-// Orden de proceso, no alfabetico: como lo lee un operador.
-const WELL_VARS = ["THP", "CHP", "T_head", "Q_oil", "Q_water", "Q_gas",
-                   "ESP_freq", "ESP_current", "ESP_vib"];
-const PLANT = {
-  Separator: ["Sep_P", "Sep_level"],
-  Pipeline: ["Pipe_P_in", "Pipe_P_out", "Pipe_Q"],
+// Orden de proceso para las variables conocidas. Una variable que no este en la
+// lista va al final: un equipo nuevo aparece igual, sin tocar este archivo.
+const VAR_ORDER = ["THP", "CHP", "T_head", "Q_oil", "Q_water", "Q_gas",
+                   "ESP_freq", "ESP_current", "ESP_vib",
+                   "Sep_P", "Sep_level", "Pipe_P_in", "Pipe_P_out", "Pipe_Q"];
+
+const BIG_CARD_VARS = 6;              // a partir de aca, tarjeta grande
+const WINDOWS = [30, 120, 480, 1440]; // minutos ofrecidos en el selector
+
+const varRank = (v) => {
+  const i = VAR_ORDER.indexOf(v);
+  return i === -1 ? VAR_ORDER.length : i;
 };
 
+const winLabel = (m) => (m < 60 ? `${m}m` : `${m / 60}h`);
 const decimals = (max) => (max >= 1000 ? 0 : max >= 100 ? 1 : 2);
 const el = (tag, cls) => Object.assign(document.createElement(tag), { className: cls });
 
 const nodes = new Map();   // nombre de tag -> elementos a actualizar
 let built = false;
+let selected = null;       // reading del tag mostrado en el grafico
+let windowMin = 30;
 
-function buildTag(name, reading) {
+function buildTag(reading) {
   const wrap = el("div", "tag");
   const line = el("div", "tag-line");
   const label = el("span", "tag-label");
@@ -34,47 +43,52 @@ function buildTag(name, reading) {
   bar.append(fill);
   wrap.append(line, bar);
 
-  nodes.set(name, { wrap, value, fill });
+  wrap.addEventListener("click", () => select(reading));
+
+  nodes.set(reading.name, { wrap, value, fill });
   return wrap;
 }
 
-function buildCard(title, readings, vars) {
+function buildCard(equipment, vars, hasStatus) {
   const card = el("article", "card");
   const head = el("div", "card-head");
   const t = el("span", "card-title");
-  t.textContent = title;
+  t.textContent = equipment;
   const status = el("span", "card-status");
   head.append(t, status);
 
   const body = el("div", "card-body");
-  for (const v of vars) {
-    const r = readings.find((x) => x.variable === v);
-    if (r) body.append(buildTag(r.name, r));
-  }
+  for (const r of vars) body.append(buildTag(r));
 
   card.append(head, body);
-  nodes.set(`${title}/Status`, { statusEl: status });
+  if (hasStatus) nodes.set(`${equipment}/Status`, { statusEl: status });
   return card;
 }
 
 function build(data) {
-  const wells = document.getElementById("wells");
-  const plant = document.getElementById("plant");
+  const main = document.getElementById("main-grid");
+  const compact = document.getElementById("compact-grid");
 
-  const equipments = [...new Set(data.map((r) => r.equipment))];
-  for (const eq of equipments.filter((e) => e.startsWith("POZO"))) {
-    wells.append(buildCard(eq, data.filter((r) => r.equipment === eq), WELL_VARS));
+  // Los grupos salen del campo equipment, no de una lista escrita a mano.
+  for (const eq of [...new Set(data.map((r) => r.equipment))].sort()) {
+    const readings = data.filter((r) => r.equipment === eq);
+    const vars = readings
+      .filter((r) => r.variable !== "Status")
+      .sort((a, b) => varRank(a.variable) - varRank(b.variable));
+    const hasStatus = readings.some((r) => r.variable === "Status");
+    const target = vars.length >= BIG_CARD_VARS ? main : compact;
+    target.append(buildCard(eq, vars, hasStatus));
   }
-  for (const [eq, vars] of Object.entries(PLANT)) {
-    plant.append(buildCard(eq, data.filter((r) => r.equipment === eq), vars));
-  }
+
   built = true;
+  const first = data.find((r) => r.variable !== "Status");
+  if (first) select(first);
 }
 
 function update(data) {
-    const now = Date.now();
+  const now = Date.now();
   // Con deadband, un tag que no cambia no reporta: su timestamp envejece sin que el
-  // dato sea malo. Por eso la vejez se evalua sobre el conjunto, no tag por tag.
+  // dato sea invalido. Por eso la vejez se evalua sobre el conjunto, no tag por tag.
   const newest = Math.max(...data.map((r) => (r.ts ? new Date(r.ts).getTime() : 0)));
   const stale = now - newest > STALE_MS;
 
@@ -99,11 +113,56 @@ function update(data) {
     const pct = r.value == null ? 0 : ((r.value - min) / (max - min)) * 100;
     node.fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
 
-    // Anormalidad: calidad no-Good, o el sensor dejo de reportar.
     node.wrap.classList.toggle("bad", r.quality !== 0);
     node.wrap.classList.toggle("stale", stale && r.quality === 0);
   }
 }
+
+// --- Grafico de tendencia ---
+
+const trend = createChart(document.getElementById("trend-canvas"));
+const trendTitle = document.getElementById("trend-title");
+let trendData = [];
+
+function select(reading) {
+  if (selected) nodes.get(selected.name)?.wrap.classList.remove("selected");
+  selected = reading;
+  nodes.get(reading.name)?.wrap.classList.add("selected");
+  trendTitle.textContent = reading.unit
+    ? `${reading.name} [${reading.unit}]`
+    : reading.name;
+  loadTrend();
+}
+
+async function loadTrend() {
+  if (!selected) return;
+  // encodeURIComponent es obligatorio: el nombre trae "/" (POZO-A/THP).
+  const url = `/api/history?tag=${encodeURIComponent(selected.name)}&minutes=${windowMin}`;
+  const res = await fetch(url);
+  trendData = await res.json();
+  redraw();
+}
+
+function redraw() {
+  if (!selected) return;
+  trend.draw(trendData, { min: selected.euMin ?? 0, max: selected.euMax ?? 100 });
+}
+
+const winBox = document.getElementById("trend-windows");
+for (const m of WINDOWS) {
+  const b = el("button", "win-btn");
+  b.textContent = winLabel(m);
+  b.classList.toggle("active", m === windowMin);
+  b.addEventListener("click", () => {
+    windowMin = m;
+    for (const other of winBox.children) other.classList.remove("active");
+    b.classList.add("active");
+    loadTrend();
+  });
+  winBox.append(b);
+}
+
+// --- Conexion ---
 
 const statusEl = document.getElementById("conn-status");
 
@@ -118,18 +177,5 @@ connect({
   },
 });
 
-// Andamio del paso 5: un solo trend fijo para verificar el motor de graficos.
-const trend = createChart(document.getElementById("trend-canvas"));
-let trendData = [];
-
-const TREND_RANGE = { min: 0, max: 60 };   // rango de ingenieria de POZO-A/THP
-
-async function loadTrend() {
-  const res = await fetch("/api/history?tag=POZO-A/THP&minutes=30");
-  trendData = await res.json();
-  trend.draw(trendData, TREND_RANGE);
-}
-
-loadTrend();
 setInterval(loadTrend, 10000);
-window.addEventListener("resize", () => trend.draw(trendData, TREND_RANGE));
+window.addEventListener("resize", redraw);
