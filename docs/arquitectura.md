@@ -612,3 +612,33 @@ Cada valor lleva una barra que muestra su posicion dentro del rango de ingenieri
 La vejez del dato se evalua **sobre el conjunto de tags, no tag por tag**. Con deadband
 activo un tag que no cambia deja de reportar y su timestamp envejece sin que el dato
 sea invalido; lo que indica corte de la cadena es que *ninguno* de los 35 reporte.
+
+## Fase 4 — Dashboard
+
+`src/WebApp` es ASP.NET Core con tres endpoints y archivos estaticos en `wwwroot`.
+La WebApp **lee de TimescaleDB**, no abre su propia sesion OPC UA: la ingesta es la
+unica puerta de entrada de datos, y a cambio de hasta 2 s de retraso la capa de datos
+queda desacoplada del frontend.
+
+- `GET /api/tags/latest` — ultimo valor de los 35 tags (consulta LATERAL, ver seccion
+  anterior).
+- `GET /api/history?tag=&minutes=` — historial agregado con `time_bucket`, apuntando a
+  ~600 puntos sin importar la ventana. Devuelve avg, min y max por intervalo: promediar
+  solo esconderia los picos, que es justo lo que no puede perder un historian.
+- `GET /api/stream` — Server-Sent Events. Un unico `BackgroundService` consulta la base
+  una vez por segundo y reparte el snapshot a todos los conectados por `Channel<T>`,
+  en vez de que cada cliente consulte por su cuenta. Con N pestañas abiertas la carga
+  sobre la base sigue siendo una consulta por segundo.
+
+Frontend sin dependencias: HTML, CSS y JS nativo, modulos ES sin build step.
+`chart.js` es un motor de graficos propio en Canvas 2D — mapeo dato/pixel, ticks
+calculados redondeando al 1, 2 o 5 mas cercano, correccion de `devicePixelRatio` para
+pantallas HiDPI, y corte de la linea cuando hay un hueco en los datos en vez de unir
+dos puntos con una recta que nunca existio.
+
+El autoescalado vertical tiene un piso del 10 % del rango de ingenieria. Sin eso, un
+tag estable con deadband se dibuja como un terremoto: el grafico termina mostrando el
+deadband en lugar del proceso.
+
+Las tarjetas se derivan del campo `equipment` y se reparten por cantidad de variables,
+sin listas de equipos escritas a mano.
