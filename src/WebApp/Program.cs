@@ -39,6 +39,16 @@ app.MapGet("/api/health", async (NpgsqlDataSource source) =>
 app.MapGet("/api/tags/latest", async (ReadingRepository repo, CancellationToken ct) =>
     Results.Ok(await repo.GetLatestAsync(ct)));
 
+// Historial de un tag, agregado en la base para devolver siempre ~600 puntos.
+// El nombre va por query string porque contiene "/" (POZO-A/THP).
+app.MapGet("/api/history", async (string tag, int? minutes,
+                                  ReadingRepository repo, CancellationToken ct) =>
+{
+    var window = Math.Clamp(minutes ?? 30, 1, 1440);
+    var points = await repo.GetHistoryAsync(tag, window, ct);
+    return Results.Ok(points);
+});
+
 // Stream de actualizaciones. La respuesta nunca termina: escucha al broadcaster
 // y escribe un bloque "data: {...}" cada vez que llega un snapshot nuevo.
 app.MapGet("/api/stream", async (HttpContext http, LatestBroadcaster broadcaster,
