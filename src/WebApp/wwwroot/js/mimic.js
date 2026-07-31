@@ -2,6 +2,8 @@
 // No sabe nada de geometría: encuentra cada hueco por data-equipment/data-variable.
 // El HTML define DÓNDE va cada cosa; este módulo solo define QUÉ dice.
 
+import { formatValue } from "./format.js";
+
 const mimicRoot = document.getElementById("mimicView");
 
 // Borde interno del recipiente separador, en coordenadas del viewBox del SVG.
@@ -23,14 +25,6 @@ function slotFor(equipment, variable) {
     );
   }
   return slots.get(key);
-}
-
-// Decimales según el rango de ingeniería: una vibración de 0 a 10 necesita
-// dos decimales, un caudal de gas de 0 a 25000 no necesita ninguno.
-function formatValue(value, euMax) {
-  const max = euMax ?? 100;
-  const decimals = max >= 1000 ? 0 : max >= 100 ? 1 : 2;
-  return value.toFixed(decimals);
 }
 
 function updateSeparatorLevel(percent) {
@@ -59,13 +53,18 @@ export function updateMimic(readings) {
     const slot = slotFor(r.equipment, r.variable);
     if (!slot) continue;
 
-    slot.textContent =
-      r.value === null || r.value === undefined
-        ? "—"
-        : formatValue(r.value, r.euMax);
+    slot.textContent = formatValue(r.value, r.euMax);
 
     if (r.variable === "Sep_level" && r.value != null) {
       updateSeparatorLevel(r.value);
     }
+  }
+}
+
+/** Avisa qué equipo del esquema se clickeó. El handler recibe el nombre. */
+export function onEquipmentClick(handler) {
+  if (!mimicRoot) return;
+  for (const g of mimicRoot.querySelectorAll("[data-equipment]")) {
+    g.addEventListener("click", () => handler(g.dataset.equipment));
   }
 }

@@ -209,3 +209,24 @@ main { padding: 0.75rem 1rem; }
 .mimic .u       { font-size: 10px; fill: var(--txt-dim, #6a6a62); }
 .mimic .mid     { text-anchor: middle; }
 .mimic { max-width: 1120px; margin: 0 auto; }
+
+.mimic [data-equipment] { cursor: pointer; }
+.mimic [data-equipment]:hover .eq-name { text-decoration: underline; }
+
+/* Faceplates: ventanas flotantes de detalle por equipo */
+.faceplate { position: fixed; max-height: 72vh; display: flex; flex-direction: column;
+             background: var(--panel, #cfcfc9);
+             border: 1px solid var(--eq-line, #56564f);
+             box-shadow: 0 6px 24px rgba(0,0,0,.28); }
+.fp-head { display: flex; align-items: center; gap: .6rem; padding: .4rem .6rem;
+           background: var(--eq-fill, #bfbfba);
+           border-bottom: 1px solid var(--eq-line, #56564f);
+           cursor: move; user-select: none; }
+.fp-title { font-weight: 600; letter-spacing: .04em; }
+.fp-status { margin-left: auto; font-size: .8em; letter-spacing: .06em;
+             color: var(--txt-dim, #6a6a62); }
+.fp-status.abnormal { color: var(--alarm, #b3006b); font-weight: 600; }
+.fp-close { background: none; border: none; color: inherit; font-size: 1.2rem;
+            line-height: 1; padding: 0 .2rem; cursor: pointer; }
+.fp-close:hover { color: var(--alarm, #b3006b); }
+.fp-body { padding: .7rem; overflow-y: auto; display: grid; gap: .55rem; }

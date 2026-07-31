@@ -1,31 +1,18 @@
 import { connect } from "./stream.js";
 import { createChart } from "./chart.js";
-import { updateMimic } from "./mimic.js";
+import { updateMimic, onEquipmentClick } from "./mimic.js";
+import { openFaceplate, updateFaceplates } from "./faceplate.js";
+import { statusText, formatValue, NORMAL_STATUS } from "./format.js";
 
-const STATUS = ["STOPPED", "RUNNING", "FAULT"];
-const NORMAL_STATUS = "RUNNING";
 const STALE_MS = 10000;
 
 // Orden de proceso para las variables conocidas. Una variable que no este en la
 // lista va al final: un equipo nuevo aparece igual, sin tocar este archivo.
-const VAR_ORDER = [
-  "THP",
-  "CHP",
-  "T_head",
-  "Q_oil",
-  "Q_water",
-  "Q_gas",
-  "ESP_freq",
-  "ESP_current",
-  "ESP_vib",
-  "Sep_P",
-  "Sep_level",
-  "Pipe_P_in",
-  "Pipe_P_out",
-  "Pipe_Q",
-];
+const VAR_ORDER = ["THP", "CHP", "T_head", "Q_oil", "Q_water", "Q_gas",
+                   "ESP_freq", "ESP_current", "ESP_vib",
+                   "Sep_P", "Sep_level", "Pipe_P_in", "Pipe_P_out", "Pipe_Q"];
 
-const BIG_CARD_VARS = 6; // a partir de aca, tarjeta grande
+const BIG_CARD_VARS = 6;              // a partir de aca, tarjeta grande
 const WINDOWS = [30, 120, 480, 1440]; // minutos ofrecidos en el selector
 
 const varRank = (v) => {
@@ -34,14 +21,13 @@ const varRank = (v) => {
 };
 
 const winLabel = (m) => (m < 60 ? `${m}m` : `${m / 60}h`);
-const decimals = (max) => (max >= 1000 ? 0 : max >= 100 ? 1 : 2);
-const el = (tag, cls) =>
-  Object.assign(document.createElement(tag), { className: cls });
+const el = (tag, cls) => Object.assign(document.createElement(tag), { className: cls });
 
-const nodes = new Map(); // nombre de tag -> elementos a actualizar
+const nodes = new Map();   // nombre de tag -> elementos a actualizar
 let built = false;
-let selected = null; // reading del tag mostrado en el grafico
+let selected = null;       // reading del tag mostrado en el grafico
 let windowMin = 30;
+let latest = [];           // ultimo snapshot, para armar faceplates al vuelo
 
 function buildTag(reading) {
   const wrap = el("div", "tag");
@@ -66,6 +52,8 @@ function buildTag(reading) {
 
 function buildCard(equipment, vars, hasStatus) {
   const card = el("article", "card");
+  card.dataset.equipment = equipment;
+
   const head = el("div", "card-head");
   const t = el("span", "card-title");
   t.textContent = equipment;
@@ -104,16 +92,14 @@ function update(data) {
   const now = Date.now();
   // Con deadband, un tag que no cambia no reporta: su timestamp envejece sin que el
   // dato sea invalido. Por eso la vejez se evalua sobre el conjunto, no tag por tag.
-  const newest = Math.max(
-    ...data.map((r) => (r.ts ? new Date(r.ts).getTime() : 0)),
-  );
+  const newest = Math.max(...data.map((r) => (r.ts ? new Date(r.ts).getTime() : 0)));
   const stale = now - newest > STALE_MS;
 
   for (const r of data) {
     if (r.variable === "Status") {
       const node = nodes.get(r.name);
       if (!node?.statusEl) continue;
-      const text = STATUS[r.value] ?? "?";
+      const text = statusText(r.value);
       node.statusEl.textContent = text;
       node.statusEl.classList.toggle("abnormal", text !== NORMAL_STATUS);
       continue;
@@ -122,12 +108,10 @@ function update(data) {
     const node = nodes.get(r.name);
     if (!node) continue;
 
-    const d = decimals(r.euMax ?? 100);
-    node.value.textContent = r.value == null ? "---" : r.value.toFixed(d);
+    node.value.textContent = formatValue(r.value, r.euMax);
 
     // Posicion dentro del rango de ingenieria, acotada a 0..100.
-    const min = r.euMin ?? 0,
-      max = r.euMax ?? 100;
+    const min = r.euMin ?? 0, max = r.euMax ?? 100;
     const pct = r.value == null ? 0 : ((r.value - min) / (max - min)) * 100;
     node.fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
 
@@ -163,10 +147,7 @@ async function loadTrend() {
 
 function redraw() {
   if (!selected) return;
-  trend.draw(trendData, {
-    min: selected.euMin ?? 0,
-    max: selected.euMax ?? 100,
-  });
+  trend.draw(trendData, { min: selected.euMin ?? 0, max: selected.euMax ?? 100 });
 }
 
 const winBox = document.getElementById("trend-windows");
@@ -183,15 +164,27 @@ for (const m of WINDOWS) {
   winBox.append(b);
 }
 
+// --- Nivel 2: faceplates ---
+// El mimico no se mueve nunca; el detalle se abre encima.
+
+onEquipmentClick((equipment) => {
+  const vars = latest
+    .filter((r) => r.equipment === equipment)
+    .sort((a, b) => varRank(a.variable) - varRank(b.variable));
+  if (vars.length) openFaceplate(equipment, vars, select);
+});
+
 // --- Conexion ---
 
 const statusEl = document.getElementById("conn-status");
 
 connect({
   onData: (data) => {
+    latest = data;
     if (!built) build(data);
     update(data);
     updateMimic(data);
+    updateFaceplates(data);
   },
   onStatus: (state) => {
     statusEl.textContent = state === "online" ? "en linea" : "sin conexion";
