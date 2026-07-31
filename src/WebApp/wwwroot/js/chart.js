@@ -1,10 +1,8 @@
 // Motor de graficos propio. Canvas 2D, sin dependencias.
-// Esta version dibuja solo la linea; ejes y escalas vienen despues.
 
 const GAP_FACTOR = 2.5;   // salto mayor a esto veces el paso tipico = corte de linea
+const MARGIN = { top: 8, right: 10, bottom: 20, left: 52 };
 
-// Nitidez en HiDPI: el canvas se dibuja a la resolucion real del dispositivo,
-// pero seguimos escribiendo coordenadas en pixeles CSS.
 function fitToDisplay(canvas, ctx) {
   const dpr = window.devicePixelRatio || 1;
   const { width, height } = canvas.getBoundingClientRect();
@@ -14,7 +12,6 @@ function fitToDisplay(canvas, ctx) {
   return { width, height };
 }
 
-// Paso tipico entre puntos, para saber que es un hueco y que es cadencia normal.
 function typicalStep(points) {
   if (points.length < 2) return Infinity;
   const deltas = [];
@@ -23,18 +20,43 @@ function typicalStep(points) {
   return deltas[deltas.length >> 1];
 }
 
+// Paso "lindo": redondea al 1, 2 o 5 mas cercano en potencia de diez,
+// para que las marcas caigan en 33,7 / 33,8 y no en 33,712 / 33,754.
+function niceStep(rough) {
+  const mag = 10 ** Math.floor(Math.log10(rough));
+  const norm = rough / mag;
+  return (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+}
+
+function ticksFor(min, max, target) {
+  const step = niceStep((max - min) / target);
+  const out = [];
+  for (let v = Math.ceil(min / step) * step; v <= max; v += step) out.push(v);
+  return { ticks: out, decimals: Math.max(0, -Math.floor(Math.log10(step))) };
+}
+
+const hhmm = (ms) =>
+  new Date(ms).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
+
 export function createChart(canvas) {
   const ctx = canvas.getContext("2d");
-  const stroke = getComputedStyle(canvas).getPropertyValue("--trend").trim() || "#1c1c1c";
+  const css = getComputedStyle(canvas);
+  const v = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
+  const stroke = v("--trend", "#1c1c1c");
+  const gridColor = v("--border", "#8a8a8a");
+  const labelColor = v("--text-dim", "#565656");
 
-    function draw(raw, range) {
-        const { width, height } = fitToDisplay(canvas, ctx);
+  function draw(raw, range) {
+    const { width, height } = fitToDisplay(canvas, ctx);
     ctx.clearRect(0, 0, width, height);
     if (!raw?.length) return;
 
+    const plotW = width - MARGIN.left - MARGIN.right;
+    const plotH = height - MARGIN.top - MARGIN.bottom;
+    if (plotW <= 0 || plotH <= 0) return;
+
     const points = raw.map((p) => ({ t: new Date(p.ts).getTime(), v: p.avg }));
 
-    // Dominio: el tiempo cubierto y el rango de valores presentes, con aire.
     const t0 = points[0].t, t1 = points[points.length - 1].t;
     let vMin = Infinity, vMax = -Infinity;
     for (const p of points) {
@@ -52,12 +74,47 @@ export function createChart(canvas) {
       vMin = mid - minSpan / 2;
       vMax = mid + minSpan / 2;
     }
+
     // El corazon del asunto: dato -> pixel. En canvas la Y crece hacia abajo.
-    const x = (t) => ((t - t0) / (t1 - t0 || 1)) * width;
-    const y = (v) => height - ((v - vMin) / (vMax - vMin)) * height;
+    const x = (t) => MARGIN.left + ((t - t0) / (t1 - t0 || 1)) * plotW;
+    const y = (val) => MARGIN.top + plotH - ((val - vMin) / (vMax - vMin)) * plotH;
 
+    ctx.font = "10px Consolas, monospace";
+    ctx.lineWidth = 1;
+
+    // Eje Y: grilla horizontal y valores.
+    const { ticks, decimals } = ticksFor(vMin, vMax, 4);
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (const t of ticks) {
+      // El 0.5 alinea la linea al centro del pixel: evita que salga de 2 px borrosos.
+      const py = Math.round(y(t)) + 0.5;
+      ctx.strokeStyle = gridColor;
+      ctx.beginPath();
+      ctx.moveTo(MARGIN.left, py);
+      ctx.lineTo(MARGIN.left + plotW, py);
+      ctx.stroke();
+      ctx.fillStyle = labelColor;
+      ctx.fillText(t.toFixed(decimals), MARGIN.left - 6, py);
+    }
+
+    // Eje X: horas, sin grilla vertical para no ensuciar.
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = labelColor;
+    const xTicks = 5;
+    for (let i = 0; i < xTicks; i++) {
+      const t = t0 + ((t1 - t0) * i) / (xTicks - 1);
+      const px = Math.min(width - 20, Math.max(20, x(t)));
+      ctx.fillText(hhmm(t), px, MARGIN.top + plotH + 5);
+    }
+
+    // Marco del area de ploteo.
+    ctx.strokeStyle = gridColor;
+    ctx.strokeRect(MARGIN.left + 0.5, MARGIN.top + 0.5, plotW, plotH);
+
+    // La serie.
     const maxStep = typicalStep(points) * GAP_FACTOR;
-
     ctx.strokeStyle = stroke;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
