@@ -177,3 +177,35 @@ main { padding: 0.75rem 1rem; }
   background: var(--border-strong);
   color: var(--panel);
 }
+
+/* ===== Mímico de proceso (ISA-101: todo gris, color solo para lo anormal) ===== */
+.mimic-view { margin-bottom: 1.5rem; }
+.mimic { width: 100%; height: auto; display: block;
+         font-family: inherit; overflow: visible; }
+
+.mimic .eq        { fill: var(--eq-fill, #bfbfba); stroke: var(--eq-line, #56564f);
+                    stroke-width: 1.5; }
+.mimic .pipe      { stroke: var(--pipe, #77776f); stroke-width: 3; fill: none;
+                    stroke-linecap: round; }
+.mimic .tap       { stroke: var(--pipe, #77776f); stroke-width: 1;
+                    stroke-dasharray: 3 3; }
+.mimic .ground    { stroke: var(--eq-line, #56564f); stroke-width: 1;
+                    stroke-dasharray: 4 3; }
+.mimic .arrowhead { fill: var(--pipe, #77776f); stroke: none; }
+
+.mimic .instr      { fill: var(--eq-fill, #bfbfba); stroke: var(--eq-line, #56564f);
+                     stroke-width: 1.5; }
+.mimic .instr-tag  { font-size: 11px; fill: var(--txt-dim, #56564f);
+                     text-anchor: middle; }
+
+.mimic .level-fill { fill: var(--level, #9a9a92); opacity: .55; }
+.mimic .level-line { stroke: var(--eq-line, #56564f); stroke-width: 1.5; }
+
+.mimic .eq-name { font-size: 13px; font-weight: 600; letter-spacing: .04em;
+                  fill: var(--txt, #2a2a24); }
+.mimic .k       { font-size: 11px; fill: var(--txt-dim, #6a6a62); }
+.mimic .v       { font-size: 16px; fill: var(--txt, #2a2a24);
+                  text-anchor: end; font-variant-numeric: tabular-nums; }
+.mimic .u       { font-size: 10px; fill: var(--txt-dim, #6a6a62); }
+.mimic .mid     { text-anchor: middle; }
+.mimic { max-width: 1120px; margin: 0 auto; }

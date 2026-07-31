@@ -1,17 +1,144 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Oilfield SCADA</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
+
 <body>
   <header>
     <h1>Yacimiento — Vista general</h1>
     <span id="conn-status">conectando</span>
   </header>
   <main>
+    <section class="mimic-view" id="mimicView">
+      <svg class="mimic" viewBox="0 0 1040 520" role="img" aria-label="Esquema de proceso del yacimiento">
+
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path class="arrowhead" d="M0 0 L10 5 L0 10 Z" />
+          </marker>
+        </defs>
+
+        <!-- ============ POZOS ============ -->
+        <g class="eq-group" data-equipment="POZO-A" transform="translate(30,30)">
+          <rect class="eq" x="8" y="20" width="18" height="10" rx="1" />
+          <rect class="eq" x="4" y="30" width="26" height="20" rx="2" />
+          <line class="ground" x1="0" y1="56" x2="36" y2="56" />
+          <line class="pipe" x1="17" y1="50" x2="17" y2="88" />
+          <rect class="eq" x="11" y="88" width="12" height="16" rx="1" />
+          <text class="k" x="30" y="101">ESP</text>
+          <line class="pipe" x1="30" y1="40" x2="330" y2="40" />
+          <path class="eq" d="M42 34 L42 46 L48 40 Z M54 34 L54 46 L48 40 Z" />
+          <text class="eq-name" x="0" y="12">POZO-A</text>
+          <text class="k" x="70" y="74">THP</text>
+          <text class="v" x="210" y="74" data-variable="THP">—</text>
+          <text class="u" x="216" y="74">bar</text>
+          <text class="k" x="70" y="98">Q_oil</text>
+          <text class="v" x="210" y="98" data-variable="Q_oil">—</text>
+          <text class="u" x="216" y="98">m³/d</text>
+          <text class="k" x="70" y="122">ESP_vib</text>
+          <text class="v" x="210" y="122" data-variable="ESP_vib">—</text>
+          <text class="u" x="216" y="122">mm/s</text>
+        </g>
+
+        <g class="eq-group" data-equipment="POZO-B" transform="translate(30,190)">
+          <rect class="eq" x="8" y="20" width="18" height="10" rx="1" />
+          <rect class="eq" x="4" y="30" width="26" height="20" rx="2" />
+          <line class="ground" x1="0" y1="56" x2="36" y2="56" />
+          <line class="pipe" x1="17" y1="50" x2="17" y2="88" />
+          <rect class="eq" x="11" y="88" width="12" height="16" rx="1" />
+          <text class="k" x="30" y="101">ESP</text>
+          <line class="pipe" x1="30" y1="40" x2="330" y2="40" />
+          <path class="eq" d="M42 34 L42 46 L48 40 Z M54 34 L54 46 L48 40 Z" />
+          <text class="eq-name" x="0" y="12">POZO-B</text>
+          <text class="k" x="70" y="74">THP</text>
+          <text class="v" x="210" y="74" data-variable="THP">—</text>
+          <text class="u" x="216" y="74">bar</text>
+          <text class="k" x="70" y="98">Q_oil</text>
+          <text class="v" x="210" y="98" data-variable="Q_oil">—</text>
+          <text class="u" x="216" y="98">m³/d</text>
+          <text class="k" x="70" y="122">ESP_vib</text>
+          <text class="v" x="210" y="122" data-variable="ESP_vib">—</text>
+          <text class="u" x="216" y="122">mm/s</text>
+        </g>
+
+        <g class="eq-group" data-equipment="POZO-C" transform="translate(30,350)">
+          <rect class="eq" x="8" y="20" width="18" height="10" rx="1" />
+          <rect class="eq" x="4" y="30" width="26" height="20" rx="2" />
+          <line class="ground" x1="0" y1="56" x2="36" y2="56" />
+          <line class="pipe" x1="17" y1="50" x2="17" y2="88" />
+          <rect class="eq" x="11" y="88" width="12" height="16" rx="1" />
+          <text class="k" x="30" y="101">ESP</text>
+          <line class="pipe" x1="30" y1="40" x2="330" y2="40" />
+          <path class="eq" d="M42 34 L42 46 L48 40 Z M54 34 L54 46 L48 40 Z" />
+          <text class="eq-name" x="0" y="12">POZO-C</text>
+          <text class="k" x="70" y="74">THP</text>
+          <text class="v" x="210" y="74" data-variable="THP">—</text>
+          <text class="u" x="216" y="74">bar</text>
+          <text class="k" x="70" y="98">Q_oil</text>
+          <text class="v" x="210" y="98" data-variable="Q_oil">—</text>
+          <text class="u" x="216" y="98">m³/d</text>
+          <text class="k" x="70" y="122">ESP_vib</text>
+          <text class="v" x="210" y="122" data-variable="ESP_vib">—</text>
+          <text class="u" x="216" y="122">mm/s</text>
+        </g>
+
+        <!-- ============ COLECTOR ============ -->
+        <line class="pipe" x1="360" y1="70" x2="360" y2="390" />
+        <line class="pipe" x1="360" y1="230" x2="470" y2="230" marker-end="url(#arrow)" />
+
+        <!-- ============ SEPARADOR ============ -->
+        <g class="eq-group" data-equipment="Separator">
+          <rect class="eq" x="470" y="140" width="110" height="190" rx="10" />
+          <rect class="level-fill" id="sepLevelFill" x="472" y="235" width="106" height="93" />
+          <line class="level-line" id="sepLevelLine" x1="472" y1="235" x2="578" y2="235" />
+          <text class="eq-name" x="470" y="132">SEPARADOR</text>
+          <text class="k" x="600" y="180">Sep_P</text>
+          <text class="v" x="720" y="180" data-variable="Sep_P">—</text>
+          <text class="u" x="726" y="180">bar</text>
+          <text class="k" x="600" y="204">Sep_level</text>
+          <text class="v" x="720" y="204" data-variable="Sep_level">—</text>
+          <text class="u" x="726" y="204">%</text>
+        </g>
+
+        <!-- salida de gas (fuera de alcance por ahora) -->
+        <line class="pipe" x1="525" y1="140" x2="525" y2="104" />
+        <line class="pipe" x1="525" y1="104" x2="880" y2="104" marker-end="url(#arrow)" />
+        <text class="k" x="890" y="108">A COMPRESIÓN</text>
+
+        <!-- salida de líquido hacia el ducto -->
+        <line class="pipe" x1="525" y1="330" x2="525" y2="395" />
+        <line class="pipe" x1="525" y1="395" x2="700" y2="395" />
+
+        <!-- ============ DUCTO ============ -->
+        <g class="eq-group" data-equipment="Pipeline">
+          <line class="pipe" x1="700" y1="395" x2="1010" y2="395" marker-end="url(#arrow)" />
+          <text class="eq-name" x="700" y="440">DUCTO</text>
+
+          <line class="tap" x1="750" y1="395" x2="750" y2="356" />
+          <circle class="instr" cx="750" cy="344" r="14" />
+          <text class="instr-tag" x="750" y="348">PT</text>
+          <text class="v mid" x="750" y="312" data-variable="Pipe_P_in">—</text>
+          <text class="u mid" x="750" y="326">bar</text>
+
+          <rect class="eq" x="828" y="382" width="44" height="26" rx="2" />
+          <text class="instr-tag" x="850" y="399">FT</text>
+          <text class="v mid" x="850" y="352" data-variable="Pipe_Q">—</text>
+          <text class="u mid" x="850" y="366">m³/d</text>
+
+          <line class="tap" x1="950" y1="395" x2="950" y2="356" />
+          <circle class="instr" cx="950" cy="344" r="14" />
+          <text class="instr-tag" x="950" y="348">PT</text>
+          <text class="v mid" x="950" y="312" data-variable="Pipe_P_out">—</text>
+          <text class="u mid" x="950" y="326">bar</text>
+        </g>
+
+      </svg>
+    </section>
     <section id="main-grid" class="grid grid-main"></section>
     <section id="compact-grid" class="grid grid-compact"></section>
     <section id="trend" class="card">
@@ -26,4 +153,5 @@
   </main>
   <script type="module" src="/js/app.js"></script>
 </body>
+
 </html>
