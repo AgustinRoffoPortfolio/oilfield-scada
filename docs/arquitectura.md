@@ -20,9 +20,10 @@ Dashboard (HTML/CSS/JS)
 | `Simulator` | Consola | Modelo físico de pozos, bombas, separador y ducto |
 | `OpcUaServer` | Consola | Publica los tags del simulador vía OPC UA |
 | `Ingestion` | Consola | Cliente OPC UA que persiste en TimescaleDB |
-| `Alarms` | Biblioteca | Evaluación de umbrales con histéresis |
+| `Alarms` | Consola | Motor de alarmas: evalúa umbrales con histéresis y persiste eventos (ver `alarmas.md`) |
+| `Alarms.Tests` | xUnit | Tests del motor de alarmas |
 | `WebApp` | ASP.NET Core | API REST + SSE + dashboard estático |
-| `Simulator.Tests` | xUnit | Tests del modelo físico y de las alarmas |
+| `Simulator.Tests` | xUnit | Tests del modelo físico |
 
 ## Decisiones de diseño
 
