@@ -2,6 +2,7 @@ import { connect } from "./stream.js";
 import { createChart } from "./chart.js";
 import { updateMimic, onEquipmentClick } from "./mimic.js";
 import { openFaceplate, updateFaceplates } from "./faceplate.js";
+import { startAlarmPanel } from "./alarms.js";
 
 // Orden de proceso para las variables conocidas. Una variable que no este en la
 // lista va al final: un equipo nuevo aparece igual, sin tocar este archivo.
@@ -105,3 +106,5 @@ connect({
 
 setInterval(loadTrend, 10000);
 window.addEventListener("resize", redraw);
+
+startAlarmPanel();

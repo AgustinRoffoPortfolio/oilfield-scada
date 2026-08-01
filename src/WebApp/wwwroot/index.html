@@ -148,6 +148,23 @@
         <canvas id="trend-canvas"></canvas>
       </div>
     </section>
+    <section id="alarms" class="card alarm-panel">
+      <div class="card-head">
+        <span class="card-title">ALARMAS</span>
+        <span id="alarm-count" class="card-status">sin alarmas</span>
+      </div>
+      <div class="alarm-body">
+        <table class="alarm-table">
+          <thead>
+            <tr>
+              <th>Hora</th><th>Equipo</th><th>Variable</th><th>Valor</th>
+              <th>Límite</th><th>Condición</th><th>Estado</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="alarm-rows"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
   <script type="module" src="/js/app.js"></script>
 </body>

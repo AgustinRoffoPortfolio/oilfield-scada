@@ -255,3 +255,53 @@ main { padding: 0.75rem 1rem; }
 
 .mimic [data-equipment].alarm .eq-name { fill: var(--alarm); font-weight: 700; }
 .mimic [data-equipment].bad   .eq-name { fill: var(--bad); }
+
+/* ===== Panel de alarmas ===== */
+.alarm-panel { margin-top: 0.75rem; }
+.alarm-body { max-height: 220px; overflow-y: auto; }
+
+.alarm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.alarm-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border-strong);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+.alarm-table td {
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.alarm-table tbody tr.warn  td { color: var(--warn); }
+.alarm-table tbody tr.alarm td { color: var(--alarm); font-weight: 700; }
+
+/* Ya volvio a normal: sigue en pantalla hasta que alguien la reconozca,
+   pero atenuada, porque el proceso ya no esta mal. */
+.alarm-table tbody tr.cleared td { opacity: 0.55; }
+
+.ack-btn {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  padding: 0.05rem 0.35rem;
+  cursor: pointer;
+}
+
+.ack-btn:hover { background: var(--border-strong); color: var(--panel); }
+.ack-btn:disabled { opacity: 0.4; cursor: default; }
