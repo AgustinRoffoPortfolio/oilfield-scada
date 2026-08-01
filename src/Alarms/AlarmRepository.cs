@@ -65,4 +65,42 @@ public sealed class AlarmRepository(string connectionString)
             """);
         return rows.ToList();
     }
+    
+    /// Inserta una alarma nueva y devuelve su id.
+    /// ON CONFLICT DO NOTHING protege contra la carrera de dos evaluaciones
+    /// simultaneas: el indice unico parcial ya garantiza una sola abierta por
+    /// tag+severidad+lado, y aca preferimos ignorar el duplicado antes que morir.
+    public async Task<long?> RaiseAsync(RaiseAction a)
+    {
+        await using var conn = new NpgsqlConnection(_cs);
+        return await conn.ExecuteScalarAsync<long?>("""
+            INSERT INTO alarm_events
+                (tag_id, severity, direction, limit_value, raise_value, raised_at)
+            VALUES (@TagId, @Severity, @Direction, @LimitValue, @RaiseValue, @RaisedAt)
+            ON CONFLICT DO NOTHING
+            RETURNING alarm_id
+            """,
+            new
+            {
+                TagId = a.Tag.TagId,
+                a.Severity,
+                a.Direction,
+                a.LimitValue,
+                RaiseValue = a.Value,
+                RaisedAt = a.Ts
+            });
+    }
+
+    /// Marca una alarma como normalizada. El WHERE evita pisar una ya cerrada.
+    public async Task<bool> ClearAsync(ClearAction c)
+    {
+        await using var conn = new NpgsqlConnection(_cs);
+        var rows = await conn.ExecuteAsync("""
+            UPDATE alarm_events
+            SET cleared_at = @Ts, clear_value = @Value
+            WHERE alarm_id = @AlarmId AND cleared_at IS NULL
+            """,
+            new { AlarmId = c.Alarm.AlarmId, c.Ts, c.Value });
+        return rows > 0;
+    }
 }
