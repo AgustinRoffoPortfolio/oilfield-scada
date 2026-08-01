@@ -1,0 +1,75 @@
+{
+  "_comment": "Mapa de registros del RTU de campo. Equivale a la tabla que un fabricante publica en su manual: define en que direccion vive cada medicion. Este archivo NO se genera, se transcribe.",
+
+  "unitId": 1,
+  "wordOrder": "HighFirst",
+  "blockSize": 20,
+
+  "devices": [
+    {
+      "name": "POZO-A",
+      "startAddress": 0,
+      "registers": [
+        { "address": 0,  "tag": "THP",         "type": "float32" },
+        { "address": 2,  "tag": "CHP",         "type": "float32" },
+        { "address": 4,  "tag": "T_head",      "type": "float32" },
+        { "address": 6,  "tag": "Q_oil",       "type": "float32" },
+        { "address": 8,  "tag": "Q_water",     "type": "float32" },
+        { "address": 10, "tag": "Q_gas",       "type": "float32" },
+        { "address": 12, "tag": "ESP_current", "type": "float32" },
+        { "address": 14, "tag": "ESP_freq",    "type": "float32" },
+        { "address": 16, "tag": "ESP_vib",     "type": "float32" },
+        { "address": 18, "tag": "Status",      "type": "uint16" }
+      ]
+    },
+    {
+      "name": "POZO-B",
+      "startAddress": 100,
+      "registers": [
+        { "address": 100, "tag": "THP",         "type": "float32" },
+        { "address": 102, "tag": "CHP",         "type": "float32" },
+        { "address": 104, "tag": "T_head",      "type": "float32" },
+        { "address": 106, "tag": "Q_oil",       "type": "float32" },
+        { "address": 108, "tag": "Q_water",     "type": "float32" },
+        { "address": 110, "tag": "Q_gas",       "type": "float32" },
+        { "address": 112, "tag": "ESP_current", "type": "float32" },
+        { "address": 114, "tag": "ESP_freq",    "type": "float32" },
+        { "address": 116, "tag": "ESP_vib",     "type": "float32" },
+        { "address": 118, "tag": "Status",      "type": "uint16" }
+      ]
+    },
+    {
+      "name": "POZO-C",
+      "startAddress": 200,
+      "registers": [
+        { "address": 200, "tag": "THP",         "type": "float32" },
+        { "address": 202, "tag": "CHP",         "type": "float32" },
+        { "address": 204, "tag": "T_head",      "type": "float32" },
+        { "address": 206, "tag": "Q_oil",       "type": "float32" },
+        { "address": 208, "tag": "Q_water",     "type": "float32" },
+        { "address": 210, "tag": "Q_gas",       "type": "float32" },
+        { "address": 212, "tag": "ESP_current", "type": "float32" },
+        { "address": 214, "tag": "ESP_freq",    "type": "float32" },
+        { "address": 216, "tag": "ESP_vib",     "type": "float32" },
+        { "address": 218, "tag": "Status",      "type": "uint16" }
+      ]
+    },
+    {
+      "name": "Separator",
+      "startAddress": 300,
+      "registers": [
+        { "address": 300, "tag": "Sep_P",     "type": "float32" },
+        { "address": 302, "tag": "Sep_level", "type": "float32" }
+      ]
+    },
+    {
+      "name": "Pipeline",
+      "startAddress": 400,
+      "registers": [
+        { "address": 400, "tag": "Pipe_P_in",  "type": "float32" },
+        { "address": 402, "tag": "Pipe_P_out", "type": "float32" },
+        { "address": 404, "tag": "Pipe_Q",     "type": "float32" }
+      ]
+    }
+  ]
+}
