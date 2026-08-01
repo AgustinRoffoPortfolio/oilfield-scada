@@ -8,6 +8,7 @@
     <Project Path="src/WebApp/WebApp.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Alarms.Tests/Alarms.Tests.csproj" />
     <Project Path="tests/Simulator.Tests/Simulator.Tests.csproj" />
   </Folder>
 </Solution>
