@@ -2,14 +2,14 @@
 
 ## Cadena de datos
 
-Simulador → Servidor OPC UA → Ingesta → TimescaleDB
-(modelo (expone tags) (cliente (historial)
-físico) OPC UA) ↓
-Motor de alarmas
-↓
-WebApp (ASP.NET Core)
-↓ SSE
-Dashboard (HTML/CSS/JS)
+RTU / Simulador  →  Servidor OPC UA  →  Ingesta  →  TimescaleDB
+(modelo físico,     (driver Modbus +     (cliente     (historial)
+ esclavo Modbus)     address space)      OPC UA)          ↓
+                                                   Motor de alarmas
+                                                          ↓
+                                                 WebApp (ASP.NET Core)
+                                                          ↓ SSE
+                                                 Dashboard (HTML/CSS/JS)
 
 
 ## Proyectos
@@ -17,8 +17,8 @@ Dashboard (HTML/CSS/JS)
 | Proyecto | Tipo | Rol |
 |---|---|---|
 | `Shared` | Biblioteca | Modelos y configuración comunes |
-| `Simulator` | Consola | Modelo físico de pozos, bombas, separador y ducto |
-| `OpcUaServer` | Consola | Publica los tags del simulador vía OPC UA |
+| `Simulator` | Consola | Modelo físico + esclavo Modbus TCP: el RTU de campo (ver `modbus.md`) |
+| `OpcUaServer` | Consola | Driver Modbus + servidor OPC UA; arma el árbol desde `config/` (ver `configuracion.md`) |
 | `Ingestion` | Consola | Cliente OPC UA que persiste en TimescaleDB |
 | `Alarms` | Consola | Motor de alarmas: evalúa umbrales con histéresis y persiste eventos (ver `alarmas.md`) |
 | `Alarms.Tests` | xUnit | Tests del motor de alarmas |
