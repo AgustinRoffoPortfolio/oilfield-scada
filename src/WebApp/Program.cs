@@ -15,6 +15,7 @@ var dbOptions = builder.Configuration.GetSection("Database").Get<DatabaseOptions
 var dataSource = new NpgsqlDataSourceBuilder(dbOptions.ConnectionString).Build();
 builder.Services.AddSingleton(dataSource);
 builder.Services.AddSingleton<ReadingRepository>();
+builder.Services.AddSingleton<AlarmRepository>();
 
 // Una sola instancia con dos roles: tarea de fondo y objeto inyectable en el endpoint.
 builder.Services.AddSingleton<LatestBroadcaster>();
@@ -83,6 +84,24 @@ app.MapGet("/api/stream", async (HttpContext http, LatestBroadcaster broadcaster
         broadcaster.Unsubscribe(channel);
         log.LogInformation("SSE desconectado");
     }
+});
+
+// Alarmas pendientes: activas sin reconocer, reconocidas sin normalizar,
+// y normalizadas que nadie vio todavia.
+app.MapGet("/api/alarms", async (AlarmRepository repo, CancellationToken ct) =>
+    Results.Ok(await repo.GetPendingAsync(ct)));
+
+// Registro de eventos, para la vista de historial.
+app.MapGet("/api/alarms/history", async (int? limit, AlarmRepository repo, CancellationToken ct) =>
+    Results.Ok(await repo.GetHistoryAsync(Math.Clamp(limit ?? 100, 1, 500), ct)));
+
+// Reconocimiento desde la UI. 404 si ya estaba reconocida o no existe.
+app.MapPost("/api/alarms/{id:long}/ack", async (long id, AlarmRepository repo,
+                                                ILogger<Program> log, CancellationToken ct) =>
+{
+    var ok = await repo.AcknowledgeAsync(id, ct);
+    if (ok) log.LogInformation("Alarma {Id} reconocida", id);
+    return ok ? Results.Ok(new { alarmId = id, acked = true }) : Results.NotFound();
 });
 
 app.Run();
