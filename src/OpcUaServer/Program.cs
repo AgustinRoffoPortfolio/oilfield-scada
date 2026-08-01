@@ -52,10 +52,30 @@ await application.Build(
 // Crea el certificado propio del servidor la primera vez que corre.
 await application.CheckApplicationInstanceCertificatesAsync(silent: true);
 
-// El yacimiento simulado: la misma clase que usa el proyecto Simulator.
-var oilfield = new Oilfield();
-var server = new OilfieldServer(oilfield, options.NamespaceUri);
+// El address space sale de un archivo, no de catalogos compilados.
+var addressSpacePath = AddressSpaceConfig.Resolve(options.AddressSpaceFile);
+var addressSpace = AddressSpaceConfig.Load(addressSpacePath);
+
+// La fuente de datos. Hoy el simulador en proceso; manana el driver Modbus.
+var source = new SimulatorTagSource(new Oilfield());
+
+// Aviso temprano si la configuracion pide tags que nadie alimenta.
+var orphans = addressSpace.Devices
+    .SelectMany(d => addressSpace.TypeOf(d).Tags.Select(t => $"{d.Name}/{t.Name}"))
+    .Except(source.KnownTags)
+    .ToList();
+
+if (orphans.Count > 0)
+{
+    Log.Warning("{Count} tags configurados sin fuente de datos: {Tags}",
+        orphans.Count, string.Join(", ", orphans));
+}
+
+var server = new OilfieldServer(addressSpace, source, options.NamespaceUri);
 await application.StartAsync(server);
+
+Log.Information("Address space: {Path} ({Devices} equipos, {Tags} tags)",
+    addressSpacePath, addressSpace.Devices.Count, server.NodeManager?.TagCount ?? 0);
 
 // Cada ciclo: avanzar la física y publicar los valores nuevos.
 var interval = TimeSpan.FromMilliseconds(options.UpdateIntervalMs);
@@ -63,7 +83,7 @@ using var timer = new Timer(_ =>
 {
     try
     {
-        oilfield.Step(interval.TotalSeconds);
+        source.Step(interval.TotalSeconds);
         server.NodeManager?.UpdateValues();
     }
     catch (Exception ex)

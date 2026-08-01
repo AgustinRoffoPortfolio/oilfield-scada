@@ -5,37 +5,38 @@ using Range = Opc.Ua.Range;
 
 namespace OpcUaServer;
 
-/// Construye la rama "Oilfield" y copia a los nodos los valores del simulador.
+/// Construye la rama "Oilfield" desde el archivo de configuracion y copia a los
+/// nodos los valores que entrega la fuente de datos. No conoce el dominio: no
+/// sabe que es un pozo ni que mide un caudalimetro, solo tipos, equipos y tags.
 public class OilfieldNodeManager : CustomNodeManager2
 {
-    private readonly Oilfield _oilfield;
+    private readonly AddressSpaceConfig _config;
+    private readonly ITagValueSource _source;
 
-    // Cada nodo apareado con el sensor que lo alimenta. Se arma una vez,
-    // al construir el árbol, para no buscar por nombre en cada ciclo.
-    private readonly List<(AnalogItemState Node, Sensor Sensor)> _analogBindings = new();
-    private readonly List<(MultiStateDiscreteState Node, Well Well)> _statusBindings = new();
+    // Cada nodo apareado con el nombre del tag que lo alimenta. Se arma una vez,
+    // al construir el arbol, para no resolver nombres en cada ciclo.
+    private readonly List<(AnalogItemState Node, string TagName)> _analogBindings = new();
+    private readonly List<(MultiStateDiscreteState Node, string TagName)> _enumBindings = new();
 
     public OilfieldNodeManager(IServerInternal server, ApplicationConfiguration configuration,
-        Oilfield oilfield, string namespaceUri)
+        AddressSpaceConfig config, ITagValueSource source, string namespaceUri)
         : base(server, configuration, namespaceUri)
     {
-        _oilfield = oilfield;
+        _config = config;
+        _source = source;
     }
+
+    /// Cantidad de tags publicados. La usa el arranque para loguear.
+    public int TagCount => _analogBindings.Count + _enumBindings.Count;
 
     public override void CreateAddressSpace(IDictionary<NodeId, IList<IReference>> externalReferences)
     {
         lock (Lock)
         {
-            // 1) Los tipos. Los tres cuelgan de BaseObjectType.
-            var types = new[]
+            // 1) Los tipos declarados en la configuracion. Todos cuelgan de BaseObjectType.
+            foreach (var typeConfig in _config.Types)
             {
-                CreateWellType(),
-                CreateObjectType("SeparatorType", SeparatorTagCatalog.Analog),
-                CreateObjectType("PipelineType", PipelineTagCatalog.Analog)
-            };
-
-            foreach (var type in types)
-            {
+                var type = CreateObjectType(typeConfig);
                 LinkToParent(externalReferences, ObjectTypeIds.BaseObjectType,
                     type.NodeId, ReferenceTypeIds.HasSubtype);
                 AddPredefinedNode(SystemContext, type);
@@ -53,21 +54,18 @@ public class OilfieldNodeManager : CustomNodeManager2
             LinkToParent(externalReferences, ObjectIds.ObjectsFolder,
                 root.NodeId, ReferenceTypeIds.Organizes);
 
-            // 3) Las instancias, en el orden en que fluye el fluido.
-            //    Tienen que existir ANTES del AddPredefinedNode, que registra
-            //    la rama completa de una vez.
-            foreach (var well in _oilfield.Wells)
+            // 3) Los equipos, en el orden del archivo. Tienen que existir ANTES
+            //    del AddPredefinedNode, que registra la rama completa de una vez.
+            foreach (var device in _config.Devices)
             {
-                CreateWell(root, well);
+                AddDevice(root, device);
             }
-            CreateSeparator(root, _oilfield.Separator);
-            CreatePipeline(root, _oilfield.Pipeline);
 
             AddPredefinedNode(SystemContext, root);
         }
     }
 
-    /// Copia los valores actuales del simulador a los nodos y avisa a los
+    /// Copia los valores actuales de la fuente a los nodos y avisa a los
     /// clientes suscriptos. Se llama desde el timer del programa principal.
     public void UpdateValues()
     {
@@ -75,139 +73,122 @@ public class OilfieldNodeManager : CustomNodeManager2
         {
             var now = DateTime.UtcNow;
 
-            foreach (var (node, sensor) in _analogBindings)
+            foreach (var (node, tagName) in _analogBindings)
             {
-                node.Value = sensor.Value;
+                if (_source.TryGetValue(tagName, out var value))
+                {
+                    node.Value = value;
+                    node.StatusCode = StatusCodes.Good;
+                }
+                else
+                {
+                    // Sin dato de campo: el valor queda como estaba pero marcado
+                    // como malo, que es lo que el cliente tiene que ver.
+                    node.StatusCode = StatusCodes.BadNoCommunication;
+                }
+
                 node.Timestamp = now;
-                node.StatusCode = StatusCodes.Good;
                 node.ClearChangeMasks(SystemContext, false);
             }
 
-            foreach (var (node, well) in _statusBindings)
+            foreach (var (node, tagName) in _enumBindings)
             {
-                node.Value = (uint)well.Status;
+                if (_source.TryGetValue(tagName, out var value))
+                {
+                    node.Value = (uint)Math.Round(value);
+                    node.StatusCode = StatusCodes.Good;
+                }
+                else
+                {
+                    node.StatusCode = StatusCodes.BadNoCommunication;
+                }
+
                 node.Timestamp = now;
-                node.StatusCode = StatusCodes.Good;
                 node.ClearChangeMasks(SystemContext, false);
             }
         }
     }
 
-    // ---------- Declaración de tipos ----------
+    // ---------- Declaracion de tipos ----------
 
-    /// Declara un ObjectType con sus tags analógicos como componentes obligatorios.
-    private BaseObjectTypeState CreateObjectType(string typeName, TagDefinition[] tags)
+    /// Declara un ObjectType con sus tags como componentes obligatorios.
+    private BaseObjectTypeState CreateObjectType(TypeConfig typeConfig)
     {
         var type = new BaseObjectTypeState
         {
-            NodeId = new NodeId(typeName, NamespaceIndex),
-            BrowseName = new QualifiedName(typeName, NamespaceIndex),
-            DisplayName = typeName,
+            NodeId = new NodeId(typeConfig.Name, NamespaceIndex),
+            BrowseName = new QualifiedName(typeConfig.Name, NamespaceIndex),
+            DisplayName = typeConfig.Name,
             SuperTypeId = ObjectTypeIds.BaseObjectType,
             IsAbstract = false
         };
         type.AddReference(ReferenceTypeIds.HasSubtype, true, ObjectTypeIds.BaseObjectType);
 
-        foreach (var tag in tags)
+        foreach (var tag in typeConfig.Tags)
         {
-            var variable = CreateAnalogTag(type, $"{typeName}/{tag.Name}", tag);
+            var id = $"{typeConfig.Name}/{tag.Name}";
+
             // Mandatory: toda instancia del tipo tiene que traer este tag.
-            variable.ModellingRuleId = ObjectIds.ModellingRule_Mandatory;
-            type.AddChild(variable);
+            BaseVariableState template = tag.IsEnum
+                ? CreateEnumTag(type, id, tag)
+                : CreateAnalogTag(type, id, tag);
+
+            template.ModellingRuleId = ObjectIds.ModellingRule_Mandatory;
+            type.AddChild(template);
         }
 
         return type;
     }
 
-    /// WellType es un ObjectType común más el tag de estado.
-    private BaseObjectTypeState CreateWellType()
+    // ---------- Creacion de instancias ----------
+
+    /// Crea un equipo como instancia de su tipo, con todos sus tags.
+    private BaseObjectState AddDevice(NodeState parent, DeviceConfig device)
     {
-        var wellType = CreateObjectType("WellType", WellTagCatalog.Analog);
+        var typeConfig = _config.TypeOf(device);
 
-        var statusTemplate = CreateStatusTag(wellType, "WellType/Status");
-        statusTemplate.ModellingRuleId = ObjectIds.ModellingRule_Mandatory;
-        wellType.AddChild(statusTemplate);
-
-        return wellType;
-    }
-
-    // ---------- Creación de instancias ----------
-
-    /// Crea un equipo como instancia de un tipo y ata cada tag a su sensor.
-    /// El delegado sensorFor traduce nombre de tag a sensor del modelo físico.
-    private BaseObjectState CreateInstance(NodeState parent, string name, string typeName,
-        TagDefinition[] tags, Func<string, Sensor> sensorFor)
-    {
         var node = new BaseObjectState(parent)
         {
-            NodeId = new NodeId(name, NamespaceIndex),
-            BrowseName = new QualifiedName(name, NamespaceIndex),
-            DisplayName = name,
-            TypeDefinitionId = new NodeId(typeName, NamespaceIndex),
+            NodeId = new NodeId(device.Name, NamespaceIndex),
+            BrowseName = new QualifiedName(device.Name, NamespaceIndex),
+            DisplayName = device.Name,
+            TypeDefinitionId = new NodeId(typeConfig.Name, NamespaceIndex),
             ReferenceTypeId = ReferenceTypeIds.Organizes,
             EventNotifier = EventNotifiers.None
         };
 
-        foreach (var tag in tags)
+        foreach (var tag in typeConfig.Tags)
         {
-            var variable = CreateAnalogTag(node, $"{name}/{tag.Name}", tag);
-            node.AddChild(variable);
-            _analogBindings.Add((variable, sensorFor(tag.Name)));
+            AddTag(node, device.Name, tag);
         }
 
         parent.AddChild(node);
         return node;
     }
 
-    private void CreateWell(NodeState parent, Well well)
+    /// Crea un tag dentro de un equipo y lo registra para la actualizacion ciclica.
+    private void AddTag(NodeState device, string deviceName, TagConfig tag)
     {
-        var node = CreateInstance(parent, well.Name, "WellType", WellTagCatalog.Analog,
-            tagName => tagName switch
-            {
-                "THP" => well.WellheadPressure,
-                "CHP" => well.CasingPressure,
-                "T_head" => well.HeadTemperature,
-                "Q_oil" => well.OilRate,
-                "Q_water" => well.WaterRate,
-                "Q_gas" => well.GasRate,
-                "ESP_current" => well.EspCurrent,
-                "ESP_freq" => well.EspFrequency,
-                "ESP_vib" => well.EspVibration,
-                _ => throw new ArgumentException($"Tag sin sensor asociado: {tagName}")
-            });
+        var tagName = $"{deviceName}/{tag.Name}";
 
-        var status = CreateStatusTag(node, $"{well.Name}/Status");
-        node.AddChild(status);
-        _statusBindings.Add((status, well));
+        if (tag.IsEnum)
+        {
+            var node = CreateEnumTag(device, tagName, tag);
+            device.AddChild(node);
+            _enumBindings.Add((node, tagName));
+        }
+        else
+        {
+            var node = CreateAnalogTag(device, tagName, tag);
+            device.AddChild(node);
+            _analogBindings.Add((node, tagName));
+        }
     }
 
-    private void CreateSeparator(NodeState parent, Separator separator)
-    {
-        CreateInstance(parent, "Separator", "SeparatorType", SeparatorTagCatalog.Analog,
-            tagName => tagName switch
-            {
-                "Sep_P" => separator.Pressure,
-                "Sep_level" => separator.Level,
-                _ => throw new ArgumentException($"Tag sin sensor asociado: {tagName}")
-            });
-    }
+    // ---------- Fabricas de variables ----------
 
-    private void CreatePipeline(NodeState parent, Pipeline pipeline)
-    {
-        CreateInstance(parent, "Pipeline", "PipelineType", PipelineTagCatalog.Analog,
-            tagName => tagName switch
-            {
-                "Pipe_P_in" => pipeline.InletPressure,
-                "Pipe_P_out" => pipeline.OutletPressure,
-                "Pipe_Q" => pipeline.TotalFlow,
-                _ => throw new ArgumentException($"Tag sin sensor asociado: {tagName}")
-            });
-    }
-
-    // ---------- Fábricas de variables ----------
-
-    /// Crea una variable analógica con unidad de ingeniería y rango de escala.
-    private AnalogItemState CreateAnalogTag(NodeState parent, string id, TagDefinition tag)
+    /// Crea una variable analogica con unidad de ingenieria y rango de escala.
+    private AnalogItemState CreateAnalogTag(NodeState parent, string id, TagConfig tag)
     {
         var variable = new AnalogItemState(parent)
         {
@@ -239,7 +220,7 @@ public class OilfieldNodeManager : CustomNodeManager2
             {
                 NamespaceUri = "http://www.opcfoundation.org/UA/units/un/cefact",
                 UnitId = -1,
-                DisplayName = tag.Unit,
+                DisplayName = tag.Unit ?? "",
                 Description = tag.Description
             }
         };
@@ -253,21 +234,22 @@ public class OilfieldNodeManager : CustomNodeManager2
             ReferenceTypeId = ReferenceTypeIds.HasProperty,
             DataType = DataTypeIds.Range,
             ValueRank = ValueRanks.Scalar,
-            Value = new Range { Low = tag.Low, High = tag.High }
+            // Validate() ya garantizo que un tag analogico trae los dos limites.
+            Value = new Range { Low = tag.Low!.Value, High = tag.High!.Value }
         };
 
         return variable;
     }
 
-    /// Estado del pozo como enumeración con etiquetas de texto.
-    private MultiStateDiscreteState CreateStatusTag(NodeState parent, string id)
+    /// Tag discreto: entero con etiquetas de texto, tomadas de la configuracion.
+    private MultiStateDiscreteState CreateEnumTag(NodeState parent, string id, TagConfig tag)
     {
         var status = new MultiStateDiscreteState(parent)
         {
             NodeId = new NodeId(id, NamespaceIndex),
-            BrowseName = new QualifiedName("Status", NamespaceIndex),
-            DisplayName = "Status",
-            Description = "Estado del pozo",
+            BrowseName = new QualifiedName(tag.Name, NamespaceIndex),
+            DisplayName = tag.Name,
+            Description = tag.Description,
             TypeDefinitionId = VariableTypeIds.MultiStateDiscreteType,
             ReferenceTypeId = ReferenceTypeIds.HasComponent,
             DataType = DataTypeIds.UInt32,
@@ -288,11 +270,7 @@ public class OilfieldNodeManager : CustomNodeManager2
             ReferenceTypeId = ReferenceTypeIds.HasProperty,
             DataType = DataTypeIds.LocalizedText,
             ValueRank = ValueRanks.OneDimension,
-            // Las etiquetas salen del enum del simulador, en orden de valor.
-            // Así no pueden desincronizarse del modelo físico.
-            Value = Enum.GetNames<WellStatus>()
-                .Select(name => new LocalizedText(name.ToUpperInvariant()))
-                .ToArray()
+            Value = tag.States!.Select(s => new LocalizedText(s)).ToArray()
         };
 
         return status;

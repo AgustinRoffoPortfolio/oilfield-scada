@@ -4,28 +4,27 @@ namespace Shared;
 public record FieldTag(
     string Name, string Equipment, string Variable, string? Unit, double Low, double High);
 
-/// Arma la lista completa de tags recorriendo el yacimiento y los catalogos.
-/// Los nombres de los pozos salen del modelo, no de una lista paralela.
+/// Arma la lista completa de tags desde el archivo de configuracion.
+/// Es la MISMA fuente de la que el servidor OPC UA arma su arbol de nodos:
+/// asi la tabla de la base y el address space no pueden divergir.
 public static class FieldTagCatalog
 {
-    public static IReadOnlyList<FieldTag> Build(Oilfield oilfield)
+    public static IReadOnlyList<FieldTag> Build(AddressSpaceConfig config)
     {
         var tags = new List<FieldTag>();
 
-        foreach (var well in oilfield.Wells)
+        foreach (var device in config.Devices)
         {
-            foreach (var t in WellTagCatalog.Analog)
-                tags.Add(new FieldTag($"{well.Name}/{t.Name}", well.Name, t.Name, t.Unit, t.Low, t.High));
+            foreach (var tag in config.TypeOf(device).Tags)
+            {
+                // Los enums no tienen unidad; su rango es el de los indices validos.
+                var low = tag.IsEnum ? 0 : tag.Low!.Value;
+                var high = tag.IsEnum ? tag.States!.Length - 1 : tag.High!.Value;
 
-            // El estado no es analogico: no tiene unidad y su rango es el del enum.
-            tags.Add(new FieldTag($"{well.Name}/Status", well.Name, "Status", null, 0, 2));
+                tags.Add(new FieldTag(
+                    $"{device.Name}/{tag.Name}", device.Name, tag.Name, tag.Unit, low, high));
+            }
         }
-
-        foreach (var t in SeparatorTagCatalog.Analog)
-            tags.Add(new FieldTag($"Separator/{t.Name}", "Separator", t.Name, t.Unit, t.Low, t.High));
-
-        foreach (var t in PipelineTagCatalog.Analog)
-            tags.Add(new FieldTag($"Pipeline/{t.Name}", "Pipeline", t.Name, t.Unit, t.Low, t.High));
 
         return tags;
     }

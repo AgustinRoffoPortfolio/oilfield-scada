@@ -51,7 +51,11 @@ try
     Log.Information("Conectado a {Db}@{Host}:{Port} - TimescaleDB {Version}",
         db.Database, db.Host, db.Port, version);
 
-    var fieldTags = FieldTagCatalog.Build(new Oilfield());
+    var addressSpacePath = AddressSpaceConfig.Resolve(
+            builder.Configuration["AddressSpaceFile"] ?? "config/addressspace.json");
+    var addressSpace = AddressSpaceConfig.Load(addressSpacePath);
+    var fieldTags = FieldTagCatalog.Build(addressSpace);
+    Log.Information("Address space: {Path}", addressSpacePath);
     var tagRepo = new TagRepository(db.ConnectionString);
     var tagIds = await tagRepo.SyncAsync(fieldTags);
     Log.Information("Catalogo sincronizado: {Count} tags en la base", tagIds.Count);

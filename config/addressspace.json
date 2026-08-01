@@ -1,0 +1,41 @@
+{
+  "types": [
+    {
+      "name": "WellType",
+      "tags": [
+        { "name": "THP",         "unit": "bar",   "low": 0, "high": 60,    "description": "Presion en boca de pozo (tubing)" },
+        { "name": "CHP",         "unit": "bar",   "low": 0, "high": 40,    "description": "Presion del casing" },
+        { "name": "T_head",      "unit": "degC",  "low": 0, "high": 120,   "description": "Temperatura en boca de pozo" },
+        { "name": "Q_oil",       "unit": "m3/d",  "low": 0, "high": 150,   "description": "Caudal de petroleo" },
+        { "name": "Q_water",     "unit": "m3/d",  "low": 0, "high": 250,   "description": "Caudal de agua" },
+        { "name": "Q_gas",       "unit": "Nm3/d", "low": 0, "high": 25000, "description": "Caudal de gas" },
+        { "name": "ESP_current", "unit": "A",     "low": 0, "high": 100,   "description": "Corriente del motor de la bomba" },
+        { "name": "ESP_freq",    "unit": "Hz",    "low": 0, "high": 70,    "description": "Frecuencia del variador" },
+        { "name": "ESP_vib",     "unit": "mm/s",  "low": 0, "high": 12,    "description": "Vibracion de la bomba" },
+        { "name": "Status",      "description": "Estado del pozo", "states": [ "RUNNING", "STOPPED", "FAULT" ] }
+      ]
+    },
+    {
+      "name": "SeparatorType",
+      "tags": [
+        { "name": "Sep_P",     "unit": "bar", "low": 0, "high": 20,  "description": "Presion del separador" },
+        { "name": "Sep_level", "unit": "%",   "low": 0, "high": 100, "description": "Nivel de liquido del separador" }
+      ]
+    },
+    {
+      "name": "PipelineType",
+      "tags": [
+        { "name": "Pipe_P_in",  "unit": "bar",  "low": 0, "high": 20,  "description": "Presion de entrada al ducto" },
+        { "name": "Pipe_P_out", "unit": "bar",  "low": 0, "high": 20,  "description": "Presion de salida del ducto" },
+        { "name": "Pipe_Q",     "unit": "m3/d", "low": 0, "high": 800, "description": "Caudal total transportado" }
+      ]
+    }
+  ],
+  "devices": [
+    { "name": "POZO-A",    "type": "WellType" },
+    { "name": "POZO-B",    "type": "WellType" },
+    { "name": "POZO-C",    "type": "WellType" },
+    { "name": "Separator", "type": "SeparatorType" },
+    { "name": "Pipeline",  "type": "PipelineType" }
+  ]
+}
