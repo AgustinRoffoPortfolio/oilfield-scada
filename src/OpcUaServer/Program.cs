@@ -18,7 +18,7 @@ var options = configuration.GetSection("OpcUa").Get<OpcUaOptions>()
 
 // Logger de toda la aplicación.
 Log.Logger = new LoggerConfiguration()
-    .MinimumLevel.Information()
+.MinimumLevel.Information()
     // El stack es muy verboso. Sus mensajes salen firmados con el nombre de
     // nuestra subclase, porque crea el logger con el tipo en runtime.
     .MinimumLevel.Override("Opc.Ua", Serilog.Events.LogEventLevel.Warning)
@@ -56,20 +56,34 @@ await application.CheckApplicationInstanceCertificatesAsync(silent: true);
 var addressSpacePath = AddressSpaceConfig.Resolve(options.AddressSpaceFile);
 var addressSpace = AddressSpaceConfig.Load(addressSpacePath);
 
-// La fuente de datos. Hoy el simulador en proceso; manana el driver Modbus.
-var source = new SimulatorTagSource(new Oilfield());
+// El mapa del RTU: que registro corresponde a que tag.
+var mapPath = AddressSpaceConfig.Resolve(options.ModbusMapFile);
+var modbusMap = ModbusMap.Load(mapPath);
 
-// Aviso temprano si la configuracion pide tags que nadie alimenta.
-var orphans = addressSpace.Devices
-    .SelectMany(d => addressSpace.TypeOf(d).Tags.Select(t => $"{d.Name}/{t.Name}"))
-    .Except(source.KnownTags)
-    .ToList();
+// Los dos archivos los mantiene un humano: el desfasaje se detecta al arrancar.
+var (sinRegistro, sinTag) = modbusMap.CrossCheck(addressSpace);
 
-if (orphans.Count > 0)
+if (sinRegistro.Count > 0)
 {
-    Log.Warning("{Count} tags configurados sin fuente de datos: {Tags}",
-        orphans.Count, string.Join(", ", orphans));
+    Log.Warning("{Count} tags configurados sin registro en el mapa: {Tags}",
+        sinRegistro.Count, string.Join(", ", sinRegistro));
 }
+
+if (sinTag.Count > 0)
+{
+    Log.Warning("{Count} registros del mapa sin tag configurado: {Tags}",
+        sinTag.Count, string.Join(", ", sinTag));
+}
+
+// La fuente de datos: un RTU real del otro lado de un socket.
+var source = new ModbusTagSource(modbusMap, options.ModbusHost, options.ModbusPort,
+    options.ModbusPollIntervalMs, options.ModbusReconnectDelayMs);
+
+using var driverCts = new CancellationTokenSource();
+var driverTask = source.RunAsync(driverCts.Token);
+
+Log.Information("Mapa Modbus: {Path} (RTU en {Host}:{Port})",
+    mapPath, options.ModbusHost, options.ModbusPort);
 
 var server = new OilfieldServer(addressSpace, source, options.NamespaceUri);
 await application.StartAsync(server);
@@ -98,6 +112,10 @@ Log.Information("Servidor OPC UA escuchando en {Endpoint}", options.EndpointUrl)
 Log.Information("Ciclo de actualizacion: {IntervalMs} ms", options.UpdateIntervalMs);
 Log.Information("Enter para detener.");
 Console.ReadLine();
+
+await driverCts.CancelAsync();
+await driverTask;
+source.Dispose();
 
 await application.StopAsync();
 Log.Information("Servidor detenido.");

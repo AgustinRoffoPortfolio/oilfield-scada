@@ -10,4 +10,10 @@ public class OpcUaOptions
     public int UpdateIntervalMs { get; set; } = 1000;
 
     public string AddressSpaceFile { get; set; } = "config/addressspace.json";
+
+    public string ModbusMapFile { get; set; } = "config/modbusmap.json";
+    public string ModbusHost { get; set; } = "localhost";
+    public int ModbusPort { get; set; } = 5502;
+    public int ModbusPollIntervalMs { get; set; } = 1000;
+    public int ModbusReconnectDelayMs { get; set; } = 5000;
 }
