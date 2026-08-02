@@ -16,4 +16,7 @@ public class OpcUaOptions
     public int ModbusPort { get; set; } = 5502;
     public int ModbusPollIntervalMs { get; set; } = 1000;
     public int ModbusReconnectDelayMs { get; set; } = 5000;
+
+    public string PkiRoot { get; set; } = "pki";
+    public bool AutoAcceptUntrustedCertificates { get; set; } = false;
 }

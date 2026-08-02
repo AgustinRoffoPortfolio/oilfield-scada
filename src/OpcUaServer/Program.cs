@@ -36,18 +36,37 @@ var application = new ApplicationInstance(telemetry)
     ApplicationType = ApplicationType.Server
 };
 
+// La PKI vive en el repo (ignorada por Git), no escondida en AppData: el trabajo
+// real de OPC UA es mover certificados entre carpetas a mano.
+var pkiRoot = Path.GetFullPath(options.PkiRoot);
+
+// La API nueva recibe una coleccion porque un servidor puede tener varios
+// certificados (RSA, ECC) y ofrecer el que el cliente soporte. Nosotros usamos uno.
+var applicationCertificate = new CertificateIdentifier
+{
+    // La API nueva no asume el tipo: hay que declararlo porque admite RSA y ECC.
+    CertificateType = ObjectTypeIds.RsaSha256ApplicationCertificateType,
+    StoreType = CertificateStoreType.Directory,
+    StorePath = Path.Combine(pkiRoot, "own"),
+    SubjectName = $"CN={options.ApplicationName}, C=AR, O=Portfolio"
+};
+
 // Configuración armada en código, sin archivo XML.
 await application.Build(
         applicationUri: $"urn:{Dns.GetHostName()}:OilfieldScada:Server",
         productUri: "https://github.com/AgustinRoffoPortfolio/oilfield-scada")
     .AsServer(new[] { options.EndpointUrl })
-    .AddUnsecurePolicyNone()
+    .AddUnsecurePolicyNone()          // endpoint viejo, para comparar mientras desarrollamos
+    .AddSignAndEncryptPolicies()      // endpoints firmados y cifrados (Basic256Sha256 y sucesores)
     .AddUserTokenPolicy(UserTokenType.Anonymous)
     .AddSecurityConfiguration(
-        subjectName: $"CN={options.ApplicationName}, C=AR, O=Portfolio",
-        pkiRoot: "%LocalApplicationData%/OPC Foundation/pki")
-    .SetAutoAcceptUntrustedCertificates(true)
+        new CertificateIdentifierCollection { applicationCertificate },
+        pkiRoot: pkiRoot)
+    .SetAutoAcceptUntrustedCertificates(options.AutoAcceptUntrustedCertificates)
     .CreateAsync();
+
+Log.Information("PKI en {PkiRoot} (auto-aceptar: {Auto})",
+    pkiRoot, options.AutoAcceptUntrustedCertificates);
 
 // Crea el certificado propio del servidor la primera vez que corre.
 await application.CheckApplicationInstanceCertificatesAsync(silent: true);
