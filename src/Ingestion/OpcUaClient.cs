@@ -23,17 +23,35 @@ public sealed class OpcUaClient(OpcUaOptions options)
             ApplicationType = ApplicationType.Client
         };
 
+var pkiRoot = Path.GetFullPath(options.PkiRoot);
+
+        var clientCertificate = new CertificateIdentifier
+        {
+            CertificateType = ObjectTypeIds.RsaSha256ApplicationCertificateType,
+            StoreType = CertificateStoreType.Directory,
+            StorePath = Path.Combine(pkiRoot, "own"),
+            SubjectName = "CN=OilfieldIngestion, O=OilfieldScada"
+        };
+
         var config = await app.Build(
                 applicationUri: "urn:localhost:OilfieldIngestion",
                 productUri: "urn:oilfield-scada:ingestion")
             .AsClient()
-            .AddSecurityConfiguration("CN=OilfieldIngestion, O=OilfieldScada")
+            .AddSecurityConfiguration(
+                new CertificateIdentifierCollection { clientCertificate },
+                pkiRoot: pkiRoot)
+            .SetAutoAcceptUntrustedCertificates(options.AutoAcceptUntrustedCertificates)
             .CreateAsync();
 
         await app.CheckApplicationInstanceCertificatesAsync(silent: true);
 
+        // El tercer parametro es "usar seguridad": con true elige el endpoint mas
+        // seguro que ofrezca el servidor; con false, el que va en texto plano.
         var endpoint = await CoreClientUtils.SelectEndpointAsync(
-            config, options.EndpointUrl, false, 15000, default);
+            config, options.EndpointUrl, options.UseSecurity, 15000, default);
+
+        Log.Information("Endpoint elegido: {Uri} ({Policy}, {Mode})",
+            endpoint.EndpointUrl, endpoint.SecurityPolicyUri, endpoint.SecurityMode);
 
         var configured = new ConfiguredEndpoint(null, endpoint, EndpointConfiguration.Create(config));
 

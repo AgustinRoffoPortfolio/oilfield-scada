@@ -17,4 +17,14 @@ public sealed class OpcUaOptions
 
     /// Cada cuanto se reintenta reconectar tras una caida, en milisegundos.
     public int ReconnectPeriodMs { get; set; } = 5000;
+    /// Carpeta de la PKI propia del cliente. En produccion cada aplicacion corre
+    /// en su maquina y tiene la suya; aca conviven en el repo, separadas.
+    public string PkiRoot { get; set; } = "pki/ingestion";
+
+    /// Si conecta al endpoint cifrado o al inseguro.
+    public bool UseSecurity { get; set; } = true;
+
+    /// Aceptar certificados de servidor desconocidos sin intervencion.
+    /// En false hay que confiar el certificado a mano, como en campo.
+    public bool AutoAcceptUntrustedCertificates { get; set; } = false;
 }
