@@ -1,8 +1,8 @@
 # oilfield-scada
 
 Sistema de monitoreo end-to-end de un yacimiento petrolero simulado: desde el modelo
-físico de los pozos hasta un dashboard propio, pasando por OPC UA y un historian de
-series temporales.
+físico de los pozos hasta un dashboard propio, pasando por Modbus TCP, OPC UA y un
+historian de series temporales.
 
 Es una rebanada vertical de lo que hace un SCADA real, construida para entender cada
 capa en lugar de configurar un producto comercial.
@@ -10,15 +10,20 @@ capa en lugar de configurar un producto comercial.
 ## Cadena de datos
 
 ```
-Simulador  →  Servidor OPC UA  →  Ingesta  →  TimescaleDB
-(modelo       (expone tags)       (cliente    (historial)
- físico)                           OPC UA)         ↓
-                                            Motor de alarmas
-                                                   ↓
-                                        WebApp (ASP.NET Core)
-                                                   ↓  SSE
-                                        Dashboard (HTML/CSS/JS)
+Simulador (RTU)  →  Servidor OPC UA  →  Ingesta  →  TimescaleDB
+(modelo físico,     (driver Modbus      (cliente    (historial)
+ esclavo Modbus)     + address space)    OPC UA)         ↓
+                                                  Motor de alarmas
+       Modbus TCP           OPC UA                       ↓
+       (registros)       (cifrado)           WebApp (ASP.NET Core)
+                                                         ↓  SSE
+                                              Dashboard (HTML/CSS/JS)
 ```
+
+El simulador no publica OPC UA: expone una tabla de registros numerados por Modbus TCP,
+igual que un RTU de campo. El servidor OPC UA no conoce el dominio —arma su árbol desde
+un archivo de configuración y lo puebla con lo que le entrega el driver. Es el mismo
+camino Modbus → OPC UA que se está migrando en la industria real.
 
 ## Estado
 
@@ -27,18 +32,22 @@ Simulador  →  Servidor OPC UA  →  Ingesta  →  TimescaleDB
 | 1 | Modelo físico de pozos, separador y ducto | Completa |
 | 2 | Servidor OPC UA | Completa |
 | 3 | Ingesta y base de datos | Completa |
-| 4 | Dashboard | Pendiente |
-| 5 | Motor de alarmas | Pendiente |
-| 6 | Seguridad OPC UA y diferenciales | Pendiente |
+| 4 | Dashboard | Completa |
+| 5 | Motor de alarmas | Completa |
+| 6 | Address space configurable, driver Modbus, seguridad OPC UA | En curso |
+| 7 | Presentación | Pendiente |
 
 ## Stack
 
 **Backend:** C# / .NET 10, `OPCFoundation.NetStandard.Opc.Ua` (stack oficial de la OPC
-Foundation), TimescaleDB, Npgsql + Dapper, Serilog.
+Foundation), TimescaleDB, Npgsql + Dapper, Serilog, xUnit.
+
+**Protocolo Modbus:** implementado a mano de los dos lados, sin paquete de terceros.
 
 **Frontend:** HTML, CSS y JavaScript sin ninguna dependencia de terceros. Sin frameworks,
-sin librerías de gráficos, sin build step. Los gráficos se dibujan a mano en Canvas 2D y
-los datos en vivo llegan por Server-Sent Events, que es API nativa del navegador.
+sin librerías de gráficos, sin build step. Los gráficos se dibujan a mano en Canvas 2D,
+el mímico de proceso es SVG, y los datos en vivo llegan por Server-Sent Events, que es
+API nativa del navegador.
 
 **Infraestructura:** solo la base de datos corre en Docker; las aplicaciones .NET se
 ejecutan con `dotnet run`.
@@ -51,8 +60,19 @@ relacionan entre sí —si sube la frecuencia del variador sube el caudal y la c
 la línea se obstruye sube la presión y cae el caudal— y donde lo que produce cada pozo es
 exactamente lo que transporta el ducto.
 
-El detalle del modelo y de cada decisión de diseño está en [`docs/arquitectura.md`](docs/arquitectura.md).
-Los términos del dominio industrial están explicados en [`docs/glosario.md`](docs/glosario.md).
+Desde la consola del simulador se pueden inyectar fallas (teclas `1` a `4`): degradación
+gradual de la bomba, obstrucción de línea, sensor congelado, deriva de sensor. La pérdida
+de comunicación no se simula: se corta el proceso del simulador y el driver pierde el
+socket de verdad.
+
+## Documentación
+
+- [`docs/arquitectura.md`](docs/arquitectura.md) — el modelo y cada decisión de diseño
+- [`docs/glosario.md`](docs/glosario.md) — términos del dominio industrial
+- [`docs/configuracion.md`](docs/configuracion.md) — el address space configurable
+- [`docs/modbus.md`](docs/modbus.md) — mapa de registros y el driver
+- [`docs/alarmas.md`](docs/alarmas.md) — motor de alarmas, histéresis y estados
+- [`docs/seguridad.md`](docs/seguridad.md) — certificados, PKI y errores frecuentes
 
 ## Requisitos
 
@@ -62,6 +82,9 @@ Los términos del dominio industrial están explicados en [`docs/glosario.md`](d
   (opcional, para inspeccionar el servidor OPC UA)
 
 ## Cómo levantarlo
+
+Todos los comandos se corren **desde la raíz del repositorio**: varias rutas de
+configuración son relativas a ella.
 
 **1. Credenciales de la base**
 
@@ -80,24 +103,64 @@ docker compose up -d
 Get-Content .\sql\001_schema.sql | docker compose exec -T timescaledb psql -U scada -d oilfield
 ```
 
-**3. Servidor OPC UA** (primera terminal)
+**3. Simulador / RTU** (primera terminal)
+
+```powershell
+dotnet run --project src\Simulator
+```
+
+Queda escuchando como esclavo Modbus TCP en el puerto 5502. Teclas `1` a `4` para
+inyectar fallas.
+
+**4. Servidor OPC UA** (segunda terminal)
 
 ```powershell
 dotnet run --project src\OpcUaServer
 ```
 
-Queda escuchando en `opc.tcp://localhost:4840/OilfieldScada`, con política de seguridad
-`None` y autenticación anónima. Se puede inspeccionar con UaExpert.
+Escucha en `opc.tcp://localhost:4840/OilfieldScada` y ofrece cuatro endpoints: uno sin
+seguridad y tres cifrados con firma y encriptación. Arma su árbol de nodos desde
+`config/addressspace.json` y lo puebla leyendo registros del RTU.
 
-**4. Ingesta** (segunda terminal)
+**5. Ingesta** (tercera terminal)
 
 ```powershell
 $env:Database__Password = (Select-String -Path .\.env -Pattern '^POSTGRES_PASSWORD=(.*)$').Matches.Groups[1].Value
 dotnet run --project src\Ingestion
 ```
 
-Se suscribe a los 35 tags y los persiste cada dos segundos. Si el servidor OPC UA se cae,
-reintenta la conexión sola hasta recuperarla.
+Se suscribe a los 35 tags sobre canal cifrado y los persiste cada dos segundos. Si el
+servidor OPC UA se cae, reintenta la conexión sola hasta recuperarla.
+
+**6. Motor de alarmas** (cuarta terminal)
+
+```powershell
+$env:Database__Password = (Select-String -Path .\.env -Pattern '^POSTGRES_PASSWORD=(.*)$').Matches.Groups[1].Value
+dotnet run --project src\Alarms
+```
+
+**7. WebApp** (quinta terminal)
+
+```powershell
+$env:Database__Password = (Select-String -Path .\.env -Pattern '^POSTGRES_PASSWORD=(.*)$').Matches.Groups[1].Value
+dotnet run --project src\WebApp
+```
+
+Dashboard en `http://localhost:5080`.
+
+### Primer arranque: certificados
+
+La seguridad de OPC UA es de confianza mutua y manual, así que **la ingesta no conecta a
+la primera**. Su certificado queda rechazado, hay que confiarlo, y después hay que
+confiar el del servidor del lado del cliente:
+
+```powershell
+Move-Item pki\server\rejected\certs\*.der pki\server\trusted\certs\
+Move-Item pki\ingestion\rejected\certs\*.der pki\ingestion\trusted\certs\
+```
+
+Al tercer intento conecta. El procedimiento completo y una tabla para interpretar los
+errores están en [`docs/seguridad.md`](docs/seguridad.md).
 
 **Verificar que hay datos:**
 
@@ -105,18 +168,31 @@ reintenta la conexión sola hasta recuperarla.
 docker compose exec timescaledb psql -U scada -d oilfield -c "SELECT t.name, m.ts, round(m.value::numeric,2) AS value FROM measurements m JOIN tags t ON t.tag_id=m.tag_id ORDER BY m.ts DESC LIMIT 10;"
 ```
 
+## El dashboard
+
+Sigue el criterio ISA-101 / High Performance HMI: fondo gris de baja saturación y valores
+en escala de grises cuando todo está normal. El color está reservado para condiciones
+anormales —ámbar para aviso, magenta para alarma, violeta para falta de dato— de modo que
+una pantalla toda gris significa que la planta está bien. Cada valor lleva un indicador
+analógico de rango al lado, porque la posición se lee más rápido que el dígito.
+
+La pantalla principal es el mímico del proceso; el detalle por equipo se abre en un
+faceplate flotante, encima, sin reemplazar la vista.
+
 ## Estructura
 
 ```
-src/Shared/        Modelo físico y catálogo de tags, compartidos por todas las apps
-src/Simulator/     El modelo corriendo por consola, sin OPC UA
-src/OpcUaServer/   Servidor OPC UA que publica los tags
+config/            Address space y mapa de registros Modbus (JSON)
+src/Shared/        Modelo físico, compartido por todas las apps
+src/Simulator/     El modelo corriendo como RTU esclavo Modbus TCP
+src/OpcUaServer/   Servidor OPC UA + driver Modbus
 src/Ingestion/     Cliente OPC UA que persiste en TimescaleDB
-src/Alarms/        Motor de alarmas (Fase 5)
-src/WebApp/        API REST, SSE y dashboard (Fase 4)
+src/Alarms/        Motor de alarmas
+src/WebApp/        API REST, SSE y dashboard
 sql/               Esquema de la base
-docs/              Arquitectura y glosario
-tests/             Tests del modelo físico
+docs/              Arquitectura, glosario y documentación por componente
+tests/             Tests del modelo físico y del motor de alarmas
+pki/               Certificados OPC UA (no se versiona, se genera solo)
 ```
 
 ## Proyectos relacionados
