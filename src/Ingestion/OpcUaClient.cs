@@ -8,22 +8,34 @@ namespace Ingestion;
 
 /// Cliente OPC UA: se conecta al servidor del yacimiento, se suscribe a sus tags
 /// y se reconecta solo si la comunicacion se corta.
-public sealed class OpcUaClient(OpcUaOptions options)
+public sealed class OpcUaClient
 {
+    private readonly OpcUaOptions options;
+
+    // Canal por el que el stack de la OPC Foundation escribe sus propios logs.
+    // Se crea una sola vez y se lo pasamos a todo lo que lo pida.
+    private readonly ITelemetryContext telemetry;
+
     private ISession? session;
     private Subscription? subscription;
     private SessionReconnectHandler? reconnectHandler;
     private bool shuttingDown;
 
+    public OpcUaClient(OpcUaOptions options)
+    {
+        this.options = options;
+        telemetry = DefaultTelemetry.Create(builder => builder.AddSerilog(Log.Logger));
+    }
+
     public async Task ConnectAsync()
     {
-        var app = new ApplicationInstance
+        var app = new ApplicationInstance(telemetry)
         {
             ApplicationName = "OilfieldIngestion",
             ApplicationType = ApplicationType.Client
         };
 
-var pkiRoot = Path.GetFullPath(options.PkiRoot);
+        var pkiRoot = Path.GetFullPath(options.PkiRoot);
 
         var clientCertificate = new CertificateIdentifier
         {
@@ -48,17 +60,29 @@ var pkiRoot = Path.GetFullPath(options.PkiRoot);
         // El tercer parametro es "usar seguridad": con true elige el endpoint mas
         // seguro que ofrezca el servidor; con false, el que va en texto plano.
         var endpoint = await CoreClientUtils.SelectEndpointAsync(
-            config, options.EndpointUrl, options.UseSecurity, 15000, default);
+            config, options.EndpointUrl, options.UseSecurity, 15000, telemetry, default);
+
+        // El stack devuelve null si el servidor no ofrece ningun endpoint que cumpla
+        // lo pedido (tipico: UseSecurity=true contra un servidor que solo tiene None).
+        if (endpoint is null)
+            throw new InvalidOperationException(
+                $"El servidor {options.EndpointUrl} no ofrece endpoints compatibles " +
+                $"(UseSecurity={options.UseSecurity}).");
 
         Log.Information("Endpoint elegido: {Uri} ({Policy}, {Mode})",
             endpoint.EndpointUrl, endpoint.SecurityPolicyUri, endpoint.SecurityMode);
 
         var configured = new ConfiguredEndpoint(null, endpoint, EndpointConfiguration.Create(config));
 
-        session = await Session.Create(
+        // La fabrica de sesiones reemplaza al viejo Session.Create estatico:
+        // los parametros son los mismos, pero ahora sale de un objeto sustituible.
+        var sessionFactory = new DefaultSessionFactory(telemetry);
+
+        session = await sessionFactory.CreateAsync(
             config, configured, updateBeforeConnect: false,
             sessionName: "OilfieldIngestion",
-            sessionTimeout: 60000, identity: new UserIdentity(), preferredLocales: null);
+            sessionTimeout: 60000, identity: new UserIdentity(), preferredLocales: null,
+            ct: default);
 
         // Latido: si el servidor no responde en este intervalo, saltan las alarmas.
         session.KeepAliveInterval = options.KeepAliveIntervalMs;
@@ -76,7 +100,7 @@ var pkiRoot = Path.GetFullPath(options.PkiRoot);
         Log.Warning("Comunicacion OPC UA perdida ({Status}). Reintentando cada {Period} ms",
             e.Status, options.ReconnectPeriodMs);
 
-        reconnectHandler = new SessionReconnectHandler(reconnectAbort: true);
+        reconnectHandler = new SessionReconnectHandler(telemetry, reconnectAbort: true);
         reconnectHandler.BeginReconnect(sender, options.ReconnectPeriodMs, OnReconnectComplete);
     }
 
