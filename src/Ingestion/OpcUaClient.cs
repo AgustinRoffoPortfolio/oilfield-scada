@@ -171,10 +171,18 @@ public sealed class OpcUaClient
         session.AddSubscription(subscription);
         await subscription.CreateAsync();
 
-        foreach (var item in subscription.MonitoredItems)
+        // Con miles de items, una linea por cada uno tapa el log: resumimos.
+        var failed = subscription.MonitoredItems
+            .Where(i => ServiceResult.IsBad(i.Status.Error))
+            .ToList();
+
+        if (failed.Count > 0)
         {
-            if (ServiceResult.IsBad(item.Status.Error))
-                Log.Warning("Item {Tag} con problema: {Error}", item.DisplayName, item.Status.Error);
+            var muestra = string.Join(", ", failed.Take(5).Select(i => i.DisplayName));
+            if (failed.Count > 5) muestra += $", ... (+{failed.Count - 5})";
+
+            Log.Warning("{Count} items con problema: {Sample} | primer error: {Error}",
+                failed.Count, muestra, failed[0].Status.Error);
         }
 
         Log.Information("Suscripcion creada: {Count} items cada {Interval} ms, deadband {Deadband}%",

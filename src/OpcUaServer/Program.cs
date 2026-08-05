@@ -11,6 +11,9 @@ using Shared;
 var configuration = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
     .AddJsonFile("appsettings.json", optional: false)
+    // Las variables de entorno pisan al archivo: sirve para el benchmark y para
+    // cualquier despliegue donde la configuracion no viaja con el binario.
+    .AddEnvironmentVariables()
     .Build();
 
 var options = configuration.GetSection("OpcUa").Get<OpcUaOptions>()
@@ -84,8 +87,12 @@ var (sinRegistro, sinTag) = modbusMap.CrossCheck(addressSpace);
 
 if (sinRegistro.Count > 0)
 {
+// Con miles de tags la lista completa tapa la consola: mostramos una muestra.
+    var muestra = string.Join(", ", sinRegistro.Take(10));
+    if (sinRegistro.Count > 10) muestra += $", ... (+{sinRegistro.Count - 10})";
+
     Log.Warning("{Count} tags configurados sin registro en el mapa: {Tags}",
-        sinRegistro.Count, string.Join(", ", sinRegistro));
+        sinRegistro.Count, muestra);
 }
 
 if (sinTag.Count > 0)
@@ -95,11 +102,24 @@ if (sinTag.Count > 0)
 }
 
 // La fuente de datos: un RTU real del otro lado de un socket.
-var source = new ModbusTagSource(modbusMap, options.ModbusHost, options.ModbusPort,
+var modbusSource = new ModbusTagSource(modbusMap, options.ModbusHost, options.ModbusPort,
     options.ModbusPollIntervalMs, options.ModbusReconnectDelayMs);
 
+// En modo benchmark, los tags sin registro Modbus se rellenan sinteticamente.
+ITagValueSource source = modbusSource;
+if (options.BenchmarkMode && sinRegistro.Count > 0)
+{
+    var syntheticTags = addressSpace.Devices
+        .SelectMany(d => addressSpace.TypeOf(d).Tags
+            .Where(t => !t.IsEnum)
+            .Select(t => (Name: $"{d.Name}/{t.Name}", Low: t.Low!.Value, High: t.High!.Value)))
+        .Where(t => sinRegistro.Contains(t.Name));
+
+    source = new BenchTagSource(modbusSource, syntheticTags);
+}
+
 using var driverCts = new CancellationTokenSource();
-var driverTask = source.RunAsync(driverCts.Token);
+var driverTask = modbusSource.RunAsync(driverCts.Token);
 
 Log.Information("Mapa Modbus: {Path} (RTU en {Host}:{Port})",
     mapPath, options.ModbusHost, options.ModbusPort);
@@ -134,7 +154,7 @@ Console.ReadLine();
 
 await driverCts.CancelAsync();
 await driverTask;
-source.Dispose();
+modbusSource.Dispose();
 
 await application.StopAsync();
 Log.Information("Servidor detenido.");

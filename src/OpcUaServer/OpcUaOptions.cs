@@ -20,4 +20,7 @@ public class OpcUaOptions
     public string PkiRoot { get; set; } = "pki/server";
     public bool AutoAcceptUntrustedCertificates { get; set; } = false;
 
+    /// Rellena con valores sinteticos los tags sin registro Modbus. Solo benchmark.
+    public bool BenchmarkMode { get; set; } = false;
+
 }

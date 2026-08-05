@@ -13,6 +13,10 @@ using Shared;
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
     .WriteTo.Console()
+    // Archivo diario con rotacion: la consola sirve para mirar, el archivo para medir.
+    .WriteTo.File("logs/ingestion-.log",
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 7)
     .CreateLogger();
 
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
@@ -38,6 +42,9 @@ if (string.IsNullOrWhiteSpace(db.Password))
 
 // Cola compartida: la escribe el hilo de OPC UA, la vacia el loop de volcado.
 var buffer = new ConcurrentQueue<Measurement>();
+// Latencias de ingesta en milisegundos: desde que el servidor genero el valor
+// hasta que la fila se escribe. Se vacia en cada volcado.
+var latencies = new ConcurrentQueue<double>();
 using var cts = new CancellationTokenSource();
 
 try
@@ -74,10 +81,14 @@ try
         catch { return; }
 
         var ts = dv.SourceTimestamp != DateTime.MinValue ? dv.SourceTimestamp : DateTime.UtcNow;
+
+        // Cuanto tardo el dato en llegar hasta aca. Se completa al escribir.
+        latencies.Enqueue((DateTime.UtcNow - ts).TotalMilliseconds);
+
         buffer.Enqueue(new Measurement(ts, tagId, value, QualityOf(dv.StatusCode)));
     });
 
-    var flushTask = FlushLoopAsync(measurements, buffer, db.FlushIntervalMs, cts.Token);
+    var flushTask = FlushLoopAsync(measurements, buffer, latencies, db.FlushIntervalMs, cts.Token);
 
     Log.Information("Ingesta corriendo. Enter para detener.");
     Console.ReadLine();
@@ -106,7 +117,7 @@ static short QualityOf(StatusCode status) =>
 /// Vacia el buffer a la base cada intervalo, hasta que se cancele.
 static async Task FlushLoopAsync(
     MeasurementRepository repo, ConcurrentQueue<Measurement> buffer,
-    int intervalMs, CancellationToken ct)
+    ConcurrentQueue<double> latencies, int intervalMs, CancellationToken ct)
 {
     var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(intervalMs));
     long total = 0;
@@ -132,7 +143,25 @@ static async Task FlushLoopAsync(
         try
         {
             var written = await repo.WriteBatchAsync(batch, CancellationToken.None);
-            Log.Information("Volcadas {Count} filas", written);
+
+            // Estadistica de latencia del lote. El p95 importa mas que el promedio:
+            // el promedio esconde los picos, y el pico es lo que rompe un historian.
+            var samples = new List<double>();
+            while (latencies.TryDequeue(out var ms)) samples.Add(ms);
+
+            if (samples.Count > 0)
+            {
+                samples.Sort();
+                var p95 = samples[(int)(samples.Count * 0.95)];
+                Log.Information(
+                    "Volcadas {Count} filas | latencia ms: prom {Avg:F0} p95 {P95:F0} max {Max:F0}",
+                    written, samples.Average(), p95, samples[^1]);
+            }
+            else
+            {
+                Log.Information("Volcadas {Count} filas", written);
+            }
+
             return written;
         }
         catch (Exception ex)

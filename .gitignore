@@ -490,3 +490,7 @@ appsettings.Development.json
 pki/
 
 docs/glosario.md
+
+config/bench-*.json
+
+logs/
