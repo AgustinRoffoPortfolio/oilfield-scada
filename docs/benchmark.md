@@ -51,9 +51,30 @@ el script.
 - **Disco** — tamaño real de la hypertable dividido por su cantidad de filas, y
   proyectado a un día a la tasa de escritura medida.
 
-Todo corrió en una sola máquina de desarrollo, con los cinco procesos y la base
-compitiendo por los mismos recursos. Los números son de esa máquina, no de un
-despliegue dimensionado.
+### Máquina de prueba
+
+| | |
+|---|---|
+| CPU | Intel Core i5-12450H (8 núcleos, 12 hilos) |
+| RAM | 7,7 GB |
+| Disco | NVMe Micron 3400, 512 GB |
+| SO | Windows 10 Home |
+| Base de datos | TimescaleDB 2.29 en Docker sobre WSL2 |
+
+Todo corrió en esa única máquina: los cinco procesos de la aplicación y la base
+compitiendo por los mismos recursos, sin red de por medio y sin dimensionamiento.
+
+Dos aclaraciones que hacen que estos números sean un **piso y no un techo**:
+
+Los 7,7 GB de RAM son poco para esta carga. Postgres tuvo margen muy escaso para
+cachear, y la memoria se repartió además entre las cinco aplicaciones .NET y la
+máquina virtual de WSL2. Con más RAM disponible para *shared buffers*, la tasa de
+escritura sostenida debería mejorar.
+
+La base corre en Docker sobre WSL2, no nativa. Eso agrega una capa de
+virtualización del sistema de archivos entre Postgres y el NVMe, con un costo de
+E/S medible en Windows. El mismo hardware con Postgres nativo daría mejores
+números.
 
 ---
 
@@ -142,6 +163,3 @@ el 0,2% configurado en cada ciclo, así que casi todos los cambios se reportan. 
 campo real, con variables que se quedan quietas durante minutos, produciría
 bastante menos tráfico a la misma cantidad de tags. Los números de esta tabla son
 un caso pesimista en ese sentido.
-
-**Una sola máquina.** Sin separación entre la base y las aplicaciones, sin
-dimensionamiento, sin red de por medio.
