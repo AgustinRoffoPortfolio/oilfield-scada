@@ -58,7 +58,7 @@ el script.
 | CPU | Intel Core i5-12450H (8 núcleos, 12 hilos) |
 | RAM | 7,7 GB |
 | Disco | NVMe Micron 3400, 512 GB |
-| SO | Windows 10 Home |
+| SO | Windows 11 25H2 (build 26200) |
 | Base de datos | TimescaleDB 2.29 en Docker sobre WSL2 |
 
 Todo corrió en esa única máquina: los cinco procesos de la aplicación y la base
