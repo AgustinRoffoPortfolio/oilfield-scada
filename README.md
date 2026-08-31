@@ -64,6 +64,11 @@ sistema de producción —calidad del dato de campo, compresión y retención en
 y reintento de lotes fallidos en la ingesta— están documentadas en `docs/` y son
 trabajo consciente pendiente, no descuido.
 
+La escala está medida, no estimada: la cadena completa se corrió hasta 13.508 tags
+activos, sosteniendo unas 13.000 filas por segundo sin pérdida de datos ni
+reconexiones. Los números, los cuellos de botella que aparecieron y las limitaciones
+de la medición están en [`docs/benchmark.md`](docs/benchmark.md).
+
 ## Stack
 
 **Backend:** C# / .NET 10, `OPCFoundation.NetStandard.Opc.Ua` (stack oficial de la OPC
@@ -100,6 +105,7 @@ socket de verdad.
 - [`docs/modbus.md`](docs/modbus.md) — mapa de registros y el driver
 - [`docs/alarmas.md`](docs/alarmas.md) — motor de alarmas, histéresis y estados
 - [`docs/seguridad.md`](docs/seguridad.md) — certificados, PKI y errores frecuentes
+- [`docs/benchmark.md`](docs/benchmark.md) — el benchmark de escala, con sus hallazgos y limitaciones
 
 ## Requisitos
 
@@ -153,8 +159,24 @@ Este archivo no se versiona.
 
 ```powershell
 docker compose up -d
-Get-Content .\sql\001_schema.sql | docker compose exec -T timescaledb psql -U scada -d oilfield
 ```
+
+Con la base arriba, aplicar los tres archivos de esquema en orden. Son tres y no uno:
+`001_schema.sql` crea las tablas y la hypertable, `03_tag_limits.sql` agrega los umbrales
+de alarma a cada tag, y `04_alarms.sql` crea la tabla de eventos. Sin los dos últimos el
+motor de alarmas arranca pero no tiene contra qué comparar, y el dashboard nunca pinta
+ámbar ni magenta.
+
+```powershell
+$pass = (Select-String -Path .\.env -Pattern '^POSTGRES_PASSWORD=(.*)$').Matches.Groups[1].Value
+foreach ($f in '001_schema.sql', '03_tag_limits.sql', '04_alarms.sql') {
+    Get-Content ".\sql\$f" | docker compose exec -T -e PGPASSWORD=$pass timescaledb `
+        psql -U scada -d oilfield -v ON_ERROR_STOP=1
+}
+```
+
+`scada` y `oilfield` son los valores por defecto de `.env.example`; si los cambiaste en
+tu `.env`, ajustá los dos parámetros. El camino rápido de más arriba hace esto solo.
 
 **3. Simulador / RTU** (primera terminal)
 
@@ -218,7 +240,8 @@ errores están en [`docs/seguridad.md`](docs/seguridad.md).
 **Verificar que hay datos:**
 
 ```powershell
-docker compose exec timescaledb psql -U scada -d oilfield -c "SELECT t.name, m.ts, round(m.value::numeric,2) AS value FROM measurements m JOIN tags t ON t.tag_id=m.tag_id ORDER BY m.ts DESC LIMIT 10;"
+$pass = (Select-String -Path .\.env -Pattern '^POSTGRES_PASSWORD=(.*)$').Matches.Groups[1].Value
+docker compose exec -T -e PGPASSWORD=$pass timescaledb psql -U scada -d oilfield -c "SELECT t.name, m.ts, round(m.value::numeric,2) AS value FROM measurements m JOIN tags t ON t.tag_id=m.tag_id ORDER BY m.ts DESC LIMIT 10;"
 ```
 
 ## El dashboard
