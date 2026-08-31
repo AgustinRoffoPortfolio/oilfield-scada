@@ -113,6 +113,32 @@ socket de verdad.
 Todos los comandos se corren **desde la raíz del repositorio**: varias rutas de
 configuración son relativas a ella.
 
+### Camino rápido
+
+Una vez configurado el `.env`, el sistema entero se levanta con un comando:
+
+```powershell
+.\scripts\start-all.ps1
+```
+
+El script verifica que Docker esté corriendo, levanta TimescaleDB y espera a que
+acepte conexiones, aplica el esquema si la base está vacía, compila la solución una
+sola vez —las cinco aplicaciones comparten el proyecto `Shared` y si cada una compila
+por su cuenta se pelean por el mismo archivo— y abre las cinco en ventanas separadas,
+con la contraseña de la base tomada del `.env`.
+
+Requiere Docker Desktop abierto. En el primer arranque avisa que los certificados OPC
+UA todavía no están confiados y remite al procedimiento de más abajo; una vez hecho
+eso, se vuelve a correr y ya queda.
+
+Dashboard en `http://localhost:5080`. Para bajar todo: cerrar las cinco ventanas y
+`docker compose down`.
+
+### Paso a paso
+
+Vale la pena arrancarlo a mano al menos una vez: cada proceso es una capa distinta de
+la cadena y se entiende mejor viéndolos levantar por separado.
+
 **1. Credenciales de la base**
 
 Copiar `.env.example` a `.env` y completar la contraseña:
