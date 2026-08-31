@@ -9,12 +9,22 @@ capa en lugar de configurar un producto comercial.
 
 ## Demo
 
+### La falla, de punta a punta
+
 Degradación progresiva de una bomba electrosumergible: se inyecta la falla desde el
 simulador, la vibración y la corriente suben juntas, el valor escala de aviso a alarma,
 y el operador reconoce el evento. La pantalla arranca y termina en gris, que es como el
 criterio ISA-101 dice que tiene que verse una planta sana.
 
 https://github.com/user-attachments/assets/d64a95a4-0f6d-4766-ba61-06883231db88
+
+### La cadena, capa por capa
+
+La misma cadena vista por dentro: el mapa de registros Modbus del RTU, el árbol de
+nodos del servidor OPC UA inspeccionado con UaExpert, la ingesta escribiendo por
+lotes con su latencia medida, y el historial consultado en TimescaleDB.
+
+https://github.com/user-attachments/assets/5639cd21-095c-47f7-8a76-add5d2c906b4
 
 ## Cadena de datos
 
