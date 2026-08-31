@@ -7,6 +7,15 @@ historian de series temporales.
 Es una rebanada vertical de lo que hace un SCADA real, construida para entender cada
 capa en lugar de configurar un producto comercial.
 
+## Demo
+
+Degradación progresiva de una bomba electrosumergible: se inyecta la falla desde el
+simulador, la vibración y la corriente suben juntas, el valor escala de aviso a alarma,
+y el operador reconoce el evento. La pantalla arranca y termina en gris, que es como el
+criterio ISA-101 dice que tiene que verse una planta sana.
+
+https://github.com/user-attachments/assets/d64a95a4-0f6d-4766-ba61-06883231db88
+
 ## Cadena de datos
 
 ```
