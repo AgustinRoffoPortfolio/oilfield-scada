@@ -250,5 +250,5 @@ pki/               Certificados OPC UA (no se versiona, se genera solo)
 
 ## Proyectos relacionados
 
-- [`monitor-pozos`] — monitoreo de pozos
-- [`monitor-gasoducto`] — monitoreo de gasoducto
+- [`opc-gateway-da-ua`](https://github.com/AgustinRoffoPortfolio/opc-gateway-da-ua) — expone un servidor OPC DA legado detrás de OPC UA, sin migrar el sistema existente
+- [`monitor-pozos`](https://github.com/AgustinRoffoPortfolio/monitor-pozos) — monitoreo de pozos
