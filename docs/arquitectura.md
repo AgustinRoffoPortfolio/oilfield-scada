@@ -55,7 +55,12 @@ producción en la industria.
 
 ### Decisiones de diseño
 
-**1. El servidor hospeda al simulador en el mismo proceso.**
+> **Nota de la Fase 6.** Las decisiones 1 y 4 de esta sección fueron reemplazadas más
+> adelante. Se conservan con su razonamiento original, porque el porqué del cambio es
+> parte de lo que el proyecto tiene para mostrar. Cada una lleva al final qué la
+> reemplazó y por qué.
+
+**1. El servidor hospeda al simulador en el mismo proceso.** *(Reemplazada en la Fase 6.)*
 
 `OpcUaServer` referencia a `Shared` y crea su propia instancia de `Oilfield`. No hay
 comunicación entre procesos, ni colas, ni sockets internos entre el modelo físico y el
@@ -69,6 +74,17 @@ OPC UA ya resuelve— para ganar una independencia que en este proyecto nadie ne
 El proyecto `src/Simulator` sigue existiendo y corre por consola. Comparte el mismo
 `Shared`, así que ambos ven exactamente el mismo modelo físico: sirve para demostrar el
 simulador aislado, sin levantar la cadena completa.
+
+**Qué pasó después.** En la Fase 6 el simulador salió del proceso del servidor y pasó a
+ser un esclavo Modbus TCP: un RTU de campo que expone registros numerados, sin nombres ni
+unidades. El argumento de arriba no era falso —un PLC efectivamente calcula y publica
+desde el mismo equipo—, pero el proyecto no estaba modelando el PLC: estaba modelando la
+capa que en campo va *arriba* del PLC. Un servidor OPC UA real no calcula el proceso,
+traduce lo que le entrega un driver de protocolo. Con el simulador adentro, el servidor
+conocía el dominio y el camino Modbus → OPC UA —el que la industria está migrando hoy— no
+existía en el proyecto. Detalle del mapa de registros y del driver en `modbus.md`.
+
+Hoy `src/Simulator` no es una demo aislada: es el campo.
 
 **2. Un NodeManager propio, con namespace propio.**
 
@@ -115,7 +131,7 @@ La ventaja del modelado se conserva —fuente única de verdad, tipo publicado y
 consultable—; lo que no tenemos es la instanciación automática, que es una comodidad
 interna y no algo que el cliente perciba.
 
-**4. Endpoint sin seguridad, deliberadamente.**
+**4. Endpoint sin seguridad, deliberadamente.** *(Reemplazada en la Fase 6.)*
 
 Hoy el servidor expone un único endpoint con `SecurityPolicy None`, mensajes sin firmar
 ni encriptar, y autenticación anónima. Es una decisión de secuencia, no un descuido: con
@@ -124,13 +140,23 @@ servidor y viceversa, y ningún error de conexión sería distinguible de un err
 modelo de datos. Habilitarla antes de tener el árbol funcionando habría convertido la
 fase en una pelea con certificados.
 
-La Fase 6 agrega el canal seguro: políticas `Basic256Sha256` con firma y encriptado,
-validación real del certificado del cliente y una carpeta de rechazados que requiere
-aprobación humana.
+**Qué pasó después.** La Fase 6 agregó el canal seguro, y con más alcance del que
+anticipaba este párrafo. El servidor no reemplazó el endpoint sin seguridad: expone
+**cuatro**, uno con `SecurityPolicy None` y tres cifrados, para que un cliente de
+diagnóstico como UaExpert pueda entrar sin ceremonia mientras la ingesta corre sobre
+`Aes256_Sha256_RsaPss`, que es más fuerte que el `Basic256Sha256` que prometía este
+texto. La validación del certificado y la carpeta de rechazados con aprobación manual
+quedaron como se describían. El procedimiento completo, la PKI y una tabla para
+interpretar los errores de conexión están en `seguridad.md`.
 
-Lo que **sí** está resuelto desde ahora: el almacén de certificados (PKI) del servidor
-vive en `%LocalAppData%\OPC Foundation\pki`, fuera del repositorio. No hay forma de
-commitear una clave privada por accidente.
+También cambió dónde vive el almacén de certificados. La idea era dejarlo en
+`%LocalAppData%\OPC Foundation\pki`, la ubicación por defecto del stack; hoy la PKI está
+en `pki/`, en la raíz del repositorio, ignorada por Git y separada por aplicación
+—servidor e ingesta tienen cada uno la suya—. Una ruta relativa dentro del repo hace que
+la instalación sea reproducible y que el borrado de `pki/` sea un reset limpio, a costa
+de tener que correr las aplicaciones **desde la raíz** para que `PkiRoot` resuelva bien.
+El argumento de fondo no cambió: la carpeta está en `.gitignore`, así que sigue sin haber
+forma de commitear una clave privada por accidente.
 
 ### Estructura del código
 
@@ -597,6 +623,19 @@ chunk, mientras que LATERAL frena en el primero.
 
 Limitacion conocida: LATERAL es rapido porque todos los tags reportan seguido.
 Un tag sin datos recientes obligaria a bajar chunk por chunk hasta encontrarlo.
+
+**Verificado en la Fase 6.** Esa limitacion dejo de ser hipotesis: el benchmark de
+escala la midio. Con 13.508 tags —de los cuales 1.497 son `Status` sinteticos que
+nunca reciben valor— LATERAL tarda 121,1 ms contra 65,6 del `DISTINCT ON` sin join,
+y la brecha se ensancha con la cantidad de tags: 1,4x a 505, 1,5x a 5.005, 1,8x a
+13.508.
+
+O sea que la eleccion de esta seccion es correcta **en su regimen** —pocos tags,
+mucho historico acumulado— y se da vuelta en el opuesto. No implica cambiar de
+consulta: el `DISTINCT ON` medido devuelve cuatro columnas y el dashboard necesita
+once, y agregar ese join es exactamente la fila de 2.491 ms de la tabla de arriba.
+La salida a esa escala es una tabla de ultimos valores mantenida por la ingesta, que
+no recalcula nada. Detalle en `benchmark.md`, hallazgo 3.
 
 Reproducible con `sql/dev_benchmark_seed.sql` y `sql/dev_benchmark_explain.sql`.
 Los datos sinteticos se borran con
