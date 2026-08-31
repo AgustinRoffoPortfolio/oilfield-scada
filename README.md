@@ -53,8 +53,16 @@ camino Modbus → OPC UA que se está migrando en la industria real.
 | 3 | Ingesta y base de datos | Completa |
 | 4 | Dashboard | Completa |
 | 5 | Motor de alarmas | Completa |
-| 6 | Address space configurable, driver Modbus, seguridad OPC UA | En curso |
-| 7 | Presentación | Pendiente |
+| 6 | Address space configurable, driver Modbus TCP, seguridad OPC UA, benchmark de escala | Completa |
+| 7 | Presentación: demo en video, documentación y decisiones de diseño | Completa |
+
+El alcance de la Fase 6 se cerró en esos cuatro puntos. Planta compresora, medición
+fiscal LACT, detección de anomalías y puente MQTT quedaron deliberadamente afuera:
+son más equipos sobre una arquitectura que ya está demostrada de punta a punta, y no
+agregan nada que el proyecto no muestre hoy. Las tres brechas conocidas contra un
+sistema de producción —calidad del dato de campo, compresión y retención en la base,
+y reintento de lotes fallidos en la ingesta— están documentadas en `docs/` y son
+trabajo consciente pendiente, no descuido.
 
 ## Stack
 
