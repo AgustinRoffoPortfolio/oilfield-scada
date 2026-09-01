@@ -164,6 +164,28 @@ Con la cadena completa corriendo, se apretó el umbral de `POZO-A/ESP_vib` de 5,
    relectura del catálogo.
 6. Salió de `/api/alarms` y quedó como `closed` en `/api/alarms/history`.
 
+## Los umbrales se aplican por trigger, no por UPDATE
+
+Los límites viven en `tag_limit_defaults`, indexados por nombre de variable, y un
+trigger `BEFORE INSERT` sobre `tags` se los copia a cada tag en el momento en que la
+ingesta lo da de alta.
+
+Antes eran una lista de `UPDATE ... WHERE variable = 'X'`, y eso escondía una
+dependencia de orden: el esquema no crea los tags, los crea la ingesta al sincronizar
+el address space. `scripts/start-all.ps1` aplica el esquema solo cuando la tabla
+`tags` todavía no existe —o sea, siempre sobre una base vacía—, así que los UPDATE
+corrían contra cero filas. Los tags nacían sin umbrales y el motor de alarmas
+evaluaba 35 tags con todos los límites en NULL: arrancaba bien, no fallaba, y no
+disparaba nunca. `GET /api/alarms` devolvía 200 con una lista vacía.
+
+El síntoma solo aparecía en una base creada de cero, que es exactamente el camino de
+alguien que clona el repo por primera vez.
+
+Con el trigger, el orden deja de importar. Y además es la forma correcta de modelarlo:
+los umbrales son propiedad del tipo de variable, no de la instancia — todo `THP` de
+cualquier pozo comparte la banda. Si en el futuro un equipo nuevo trae una variable
+con nombre repetido, se agrega el tipo de equipo a la clave de la tabla de defaults.
+
 ## Pendientes conocidos
 
 - El panel consulta por polling en vez de SSE (Fase 8).
