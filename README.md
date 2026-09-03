@@ -273,5 +273,15 @@ pki/               Certificados OPC UA (no se versiona, se genera solo)
 
 ## Proyectos relacionados
 
-- [`opc-gateway-da-ua`](https://github.com/AgustinRoffoPortfolio/opc-gateway-da-ua) — expone un servidor OPC DA legado detrás de OPC UA, sin migrar el sistema existente
-- [`monitor-pozos`](https://github.com/AgustinRoffoPortfolio/monitor-pozos) — monitoreo de pozos
+Este proyecto construye la cadena industrial moderna desde cero. Los otros dos
+toman el mismo dominio desde los extremos: qué hacer cuando la cadena ya existe
+y no se puede tocar, y qué hacer con los datos una vez que están guardados.
+
+- **[`opc-gateway-da-ua`](https://github.com/AgustinRoffoPortfolio/opc-gateway-da-ua)** —
+  Expone un servidor OPC DA legado detrás de un OPC UA moderno, sobre COM interop
+  y sin migrar el sistema existente. Traduce valor, calidad y timestamp de origen
+  entre dos modelos de datos que no coinciden. C# / .NET 10.
+- **[`monitor-pozos`](https://github.com/AgustinRoffoPortfolio/monitor-pozos)** —
+  Monitoreo en tiempo real de pozos con WebSockets y detección de anomalías no
+  supervisada sobre presión, temperatura y caudal. Python / FastAPI / PostgreSQL /
+  React.
