@@ -32,6 +32,9 @@ $dbName = $env_vars['POSTGRES_DB']
 if (-not $dbUser -or -not $dbPass -or -not $dbName) {
     throw "El .env no tiene POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB."
 }
+if ($dbPass -eq 'cambiar-por-una-contrasena-larga-y-aleatoria') {
+    throw "POSTGRES_PASSWORD sigue con el valor de ejemplo de .env.example. Pone una contrasena propia."
+}
 
 # Se setea una sola vez aca: los procesos hijos heredan el entorno del padre,
 # asi que las ventanas la reciben sin tener que inyectarla en el comando.
