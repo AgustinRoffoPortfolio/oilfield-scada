@@ -193,9 +193,19 @@ inyectar fallas.
 dotnet run --project src\OpcUaServer
 ```
 
-Escucha en `opc.tcp://localhost:4840/OilfieldScada` y ofrece cuatro endpoints: uno sin
-seguridad y tres cifrados con firma y encriptación. Arma su árbol de nodos desde
-`config/addressspace.json` y lo puebla leyendo registros del RTU.
+Escucha en `opc.tcp://localhost:4840/OilfieldScada` y ofrece tres endpoints cifrados con
+firma y encriptación. Arma su árbol de nodos desde `config/addressspace.json` y lo puebla
+leyendo registros del RTU.
+
+El endpoint sin seguridad (`None - None`, anónimo) viene apagado. Para inspeccionar el
+servidor con UaExpert sin intercambiar certificados, se prende al arrancar:
+
+```powershell
+$env:OpcUa__EnableUnsecureEndpoint = "true"
+dotnet run --project src\OpcUaServer
+```
+
+El tráfico de ese endpoint va en texto plano: usarlo solo para inspeccionar.
 
 **5. Ingesta** (tercera terminal)
 

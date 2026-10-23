@@ -20,6 +20,11 @@ public class OpcUaOptions
     public string PkiRoot { get; set; } = "pki/server";
     public bool AutoAcceptUntrustedCertificates { get; set; } = false;
 
+    /// Endpoint sin seguridad (None - None): trafico sin firmar ni cifrar y con
+    /// acceso anonimo. Sirve para inspeccionar con UaExpert sin intercambiar
+    /// certificados, pero viene apagado y se enciende a conciencia.
+    public bool EnableUnsecureEndpoint { get; set; } = false;
+
     /// Rellena con valores sinteticos los tags sin registro Modbus. Solo benchmark.
     public bool BenchmarkMode { get; set; } = false;
 

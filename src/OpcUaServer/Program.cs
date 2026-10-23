@@ -55,11 +55,16 @@ var applicationCertificate = new CertificateIdentifier
 };
 
 // Configuración armada en código, sin archivo XML.
-await application.Build(
+var serverBuilder = application.Build(
         applicationUri: $"urn:{Dns.GetHostName()}:OilfieldScada:Server",
         productUri: "https://github.com/AgustinRoffoPortfolio/oilfield-scada")
-    .AsServer(new[] { options.EndpointUrl })
-    .AddUnsecurePolicyNone()          // endpoint viejo, para comparar mientras desarrollamos
+    .AsServer(new[] { options.EndpointUrl });
+
+// El endpoint sin seguridad solo se publica si se lo pide en la configuracion.
+if (options.EnableUnsecureEndpoint)
+    serverBuilder.AddUnsecurePolicyNone();
+
+await serverBuilder
     .AddSignAndEncryptPolicies()      // endpoints firmados y cifrados (Basic256Sha256 y sucesores)
     .AddUserTokenPolicy(UserTokenType.Anonymous)
     .AddSecurityConfiguration(
@@ -70,6 +75,11 @@ await application.Build(
 
 Log.Information("PKI en {PkiRoot} (auto-aceptar: {Auto})",
     pkiRoot, options.AutoAcceptUntrustedCertificates);
+
+if (options.EnableUnsecureEndpoint)
+{
+    Log.Warning("Endpoint sin seguridad HABILITADO (None - None): el trafico no se firma ni se cifra.");
+}
 
 // Crea el certificado propio del servidor la primera vez que corre.
 await application.CheckApplicationInstanceCertificatesAsync(silent: true);

@@ -90,7 +90,7 @@ Endpoints que ofrece el servidor:
 
 | Política | Modo | Uso |
 |---|---|---|
-| `None` | `None` | texto plano; se mantiene para comparar durante el desarrollo |
+| `None` | `None` | texto plano y anónimo; **apagado por defecto**, se prende con `OpcUa.EnableUnsecureEndpoint` |
 | `Basic256Sha256` | Sign & Encrypt | la más común en equipos industriales |
 | `Aes128_Sha256_RsaOaep` | Sign & Encrypt | recomendada por la OPC Foundation |
 | `Aes256_Sha256_RsaPss` | Sign & Encrypt | la más fuerte de las tres |
@@ -103,7 +103,12 @@ operador seleccionó al agregar el servidor.
 Opciones relevantes de `appsettings.json`:
 
 - `OpcUa.PkiRoot` — carpeta de la PKI de esa aplicación.
-- `OpcUa.UseSecurity` (ingesta) — `false` vuelve al endpoint `None`.
+- `OpcUa.EnableUnsecureEndpoint` (servidor) — en `true` publica además el endpoint
+  `None`. Viene en `false`. Para prenderlo sin tocar el archivo:
+  `$env:OpcUa__EnableUnsecureEndpoint = "true"` antes de `dotnet run`. El servidor lo
+  avisa con un warning al arrancar.
+- `OpcUa.UseSecurity` (ingesta) — `false` prefiere el endpoint `None`. Si el servidor no
+  lo tiene prendido, el SDK no falla: elige uno cifrado (`Basic256Sha256`).
 - `OpcUa.AutoAcceptUntrustedCertificates` — en `true` acepta cualquier certificado
   sin intervención. Está en `false` en las dos aplicaciones: es lo correcto en
   producción y es lo que hace que el mecanismo se pueda demostrar.

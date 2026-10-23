@@ -149,6 +149,10 @@ texto. La validación del certificado y la carpeta de rechazados con aprobación
 quedaron como se describían. El procedimiento completo, la PKI y una tabla para
 interpretar los errores de conexión están en `seguridad.md`.
 
+Más tarde el endpoint `None` pasó a venir apagado: se publica solo con
+`OpcUa.EnableUnsecureEndpoint` en `true`, y por defecto el servidor ofrece únicamente
+los tres cifrados.
+
 También cambió dónde vive el almacén de certificados. La idea era dejarlo en
 `%LocalAppData%\OPC Foundation\pki`, la ubicación por defecto del stack; hoy la PKI está
 en `pki/`, en la raíz del repositorio, ignorada por Git y separada por aplicación
@@ -329,6 +333,10 @@ es la misma herramienta con la que se verifica un servidor OPC UA en un proyecto
 Conectando a `opc.tcp://localhost:4840/OilfieldScada` (endpoint `None - None`,
 autenticación anónima) y arrastrando los equipos a la Data Access View, los valores se
 actualizan cada segundo y las relaciones físicas se verifican a mano.
+
+Hoy ese endpoint viene apagado. Para repetir esta verificación hay que arrancar el
+servidor con `$env:OpcUa__EnableUnsecureEndpoint = "true"`, o conectar UaExpert a uno
+de los endpoints cifrados y confiar los certificados como explica `seguridad.md`.
 
 En un pozo, con el setpoint en 52 Hz y un corte de agua de 0.35:
 
