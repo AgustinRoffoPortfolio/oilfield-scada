@@ -26,6 +26,10 @@ lotes con su latencia medida, y el historial consultado en TimescaleDB.
 
 https://github.com/user-attachments/assets/5639cd21-095c-47f7-8a76-add5d2c906b4
 
+En el video, UaExpert entra por el endpoint `None - None`, que hoy viene apagado: para
+reproducirlo, arrancar el servidor con `$env:OpcUa__EnableUnsecureEndpoint = "true"`
+(ver el paso 4 de [Paso a paso](#paso-a-paso)).
+
 ## Cadena de datos
 
 ```
