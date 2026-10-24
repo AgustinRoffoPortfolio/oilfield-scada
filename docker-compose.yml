@@ -1,6 +1,6 @@
 services:
   timescaledb:
-    image: timescale/timescaledb:2.29.0-pg17
+    image: timescale/timescaledb:2.31.0-pg17
     container_name: oilfield-timescaledb
     restart: unless-stopped
     environment:
